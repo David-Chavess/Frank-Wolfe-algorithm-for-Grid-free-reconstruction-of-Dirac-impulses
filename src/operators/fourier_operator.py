@@ -1,9 +1,9 @@
-from typing import Self
+from typing import Self, Callable
 
 import numpy as np
-from pyxu.abc.operator import LinOp, Func
 import pyxu.info.ptype as pxt
 import pyxu.util as pxu
+from pyxu.abc.operator import LinOp, Func
 
 
 class MyLinOp(LinOp):
@@ -11,6 +11,9 @@ class MyLinOp(LinOp):
         pass
 
     def adjoint(self, y: pxt.NDArray) -> pxt.NDArray:
+        pass
+
+    def adjoint_function(self, y: pxt.NDArray) -> Callable:
         pass
 
     def _meta(self):
@@ -39,42 +42,24 @@ class FourierOperator(MyLinOp):
         return self.fourier @ a.ravel()
 
     def adjoint(self, y: pxt.NDArray) -> pxt.NDArray:
+        # return self.adjoint_function(y)(self.x)
+        return np.real(self.fourier.conj().T @ y.ravel())
+
+    def adjoint_function(self, y: pxt.NDArray) -> Callable:
         return lambda t: np.real(np.exp(2j * np.pi * np.outer(self.w, t)).T @ y)
 
     def get_new_operator(self, x: pxt.NDArray) -> MyLinOp:
         return FourierOperator(x, self.w, self.n_measurements)
 
+    @staticmethod
+    def get_RandomFourierOperator(x: pxt.NDArray, n_measurements: int, bounds: pxt.NDArray) -> MyLinOp:
+        w = np.random.uniform(bounds[0], bounds[1], n_measurements)
+        return FourierOperator(x, w, n_measurements)
 
-class RandomFourierOperator(FourierOperator):
-
-    def __init__(self, x: pxt.NDArray, n_measurements: int):
-        w = np.random.uniform(-1, 1, n_measurements)
-        super().__init__(x, w, n_measurements)
-
-    def apply(self, a: pxt.NDArray) -> pxt.NDArray:
-        return self.fourier @ a.ravel()
-
-    def get_new_operator(self, x: pxt.NDArray) -> MyLinOp:
-        return RandomFourierOperator(x, self.n_measurements)
-
-
-class PeriodicFourierOperator(FourierOperator):
-
-    def __init__(self, x: pxt.NDArray, n_measurements: int, fc: int, ):
-        self.fc = fc
-        super().__init__(x, np.arange(-fc, fc + 1), n_measurements)
-
-    def get_new_operator(self, x: pxt.NDArray) -> MyLinOp:
-        return PeriodicFourierOperator(x, self.n_measurements, self.fc)
-
-
-class TMP(PeriodicFourierOperator):
-
-    def adjoint(self, y: pxt.NDArray) -> pxt.NDArray:
-        return super().adjoint(y)(self.x)
-
-    def get_new_operator(self, x: pxt.NDArray) -> MyLinOp:
-        return TMP(x, self.n_measurements, self.fc)
+    @staticmethod
+    def get_PeriodicFourierOperator(x: pxt.NDArray, n_measurements: int, fc: int) -> MyLinOp:
+        w = np.arange(-fc, fc + 1)
+        return FourierOperator(x, w, n_measurements)
 
 
 class DualCertificate(Func):
@@ -92,7 +77,7 @@ class DualCertificate(Func):
         self.lambda_ = lambda_
 
         phi = operator
-        phiS = phi.adjoint(measurements - phi(ak))
+        phiS = phi.adjoint_function(measurements - phi(ak))
 
         self.fun = lambda t: np.abs(phiS(t) / self.lambda_)
         super().__init__(x_dim, 1)
