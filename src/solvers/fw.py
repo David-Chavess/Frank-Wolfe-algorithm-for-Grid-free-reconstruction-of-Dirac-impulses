@@ -1,4 +1,5 @@
 import datetime as dt
+from time import time
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,8 +11,9 @@ import pyxu.opt.stop as pxos
 import pyxu.util as pxu
 from pyxu.abc import StoppingCriterion
 from pyxu.opt.solver.pgd import PGD
+from pyxu.util import view_as_complex, view_as_real
 
-from src.operators.fourier_operator import DualCertificate, MyLinOp
+from src.operators.fourier_operator import DualCertificate, MyLinOp, FourierOperator
 
 
 class FW(pxs.Solver):
@@ -47,6 +49,10 @@ class FW(pxs.Solver):
 
         self.verbose = True
         self.show_progress = False
+
+        self.merge = False
+        self.add_one = False
+        self.iter = 10
 
     def m_init(self, **kwargs):
         xp = pxu.get_array_module(self.y)
@@ -138,7 +144,7 @@ class FW(pxs.Solver):
         if self.verbose:
             print(f"Global Best Position: {mst['global_best_position'].ravel()}")
 
-    def correction_step(self) -> pxt.NDArray:
+    def correction_step(self, iter: int) -> pxt.NDArray:
         r"""
         Method to update the weights after the selection of the new atoms. It solves a LASSO problem with a
         restricted support corresponding to the current set of active indices (active atoms). As mentioned,
@@ -174,11 +180,11 @@ class FW(pxs.Solver):
         max_duration = pxos.MaxDuration(t=dt.timedelta(seconds=15))
 
         # stop = (min_iter & correction_stop_crit(self._mstate["correction_prec"])) | max_duration | pxos.MaxIter(100)
-        stop = pxos.MaxIter(1000)
+        stop = pxos.MaxIter(iter)
 
         apgd.fit(
             x0=a0,
-            tau=0.001,
+            tau=1 / data_fid.diff_lipschitz,
             stop_crit=stop,
         )
         # mst["correction_iterations"].append(apgd.stats()[1]["iteration"][-1])
@@ -196,6 +202,7 @@ class FW(pxs.Solver):
         #
         #     def __init__(self, x: pxt.NDArray, w: pxt.NDArray, n_measurements: int):
         #         super().__init__(x, w, (n_measurements, 2))
+        #
         #     def apply(self, a: pxt.NDArray) -> pxt.NDArray:
         #         return view_as_real(super().apply(a))
         #
@@ -207,9 +214,10 @@ class FW(pxs.Solver):
         y = self.y
         data_fid = 0.5 * pxop.SquaredL2Norm(dim_shape=y.shape).argshift(-y) * forward_op
         # t1 = time()
-        # data_fid.estimate_diff_lipschitz()
+        # t = data_fid.estimate_diff_lipschitz(method="svd", tol=1e-1)
+        # print(t)
         # print("Time to estimate diff lipschitz: ", time() - t1)
-        data_fid.diff_lipschitz = 1
+        data_fid.diff_lipschitz = max(len(y) * len(forward_op.x) / 4, 2 * len(y))
         return data_fid
 
     def get_forward_operator(self, x: pxt.NDArray) -> MyLinOp:
@@ -231,14 +239,15 @@ class FW(pxs.Solver):
 
         mst["iter_candidates"].append(mst["best_positions"].copy())
 
-        mst["x_candidates"] = xp.append(mst["x"], mst["global_best_position"])
-        mst["a_candidates"] = xp.append(mst["a"], 0)
-
-        # mst["x_candidates"] = xp.concatenate([mst["x"].reshape(-1, 1), mst["best_positions"]])
-        # mst["a_candidates"] = xp.concatenate([mst["a"], np.zeros_like(mst["best_costs"])])
+        if self.add_one:
+            mst["x_candidates"] = xp.append(mst["x"], mst["global_best_position"])
+            mst["a_candidates"] = xp.append(mst["a"], 0)
+        else:
+            mst["x_candidates"] = xp.concatenate([mst["x"].reshape(-1, 1), mst["best_positions"]])
+            mst["a_candidates"] = xp.concatenate([mst["a"], np.zeros_like(mst["best_costs"])])
 
         mst["correction_prec"] = max(self._init_correction_prec / self._astate["idx"], self._final_correction_prec)
-        updated_a = self.correction_step()
+        updated_a = self.correction_step(1000)
 
         indices = np.abs(updated_a) > self.amplitude_threshold
 
@@ -246,30 +255,28 @@ class FW(pxs.Solver):
         mst["x"] = mst["x_candidates"][indices]
         mst["a"] = updated_a[indices]
 
-        # mst["x"] = xp.append(mst["x"], mst["global_best_position"])
-        # mst["a"] = xp.append(mst["a"], 1)
-
-        # mst["iter_x"].append(mst["x"].copy())
-        # mst["iter_a"].append(mst["a"].copy())
-        #
-        # mst["x"], mst["a"] = self.merge_atoms(mst["x"], mst["a"])
-        #
-        # mst["x_candidates"] = mst["x"].reshape(-1, 1)
-        # mst["a_candidates"] = mst["a"]
-        #
-        # mst["iter_x"].append(mst["x"].copy())
-        # mst["iter_a"].append(mst["a"].copy())
-        #
-        # updated_a = self.correction_step()
-        #
-        # indices = np.abs(updated_a) > self.amplitude_threshold
-        #
-        # print(f"Loss: {self.dual_certificate(mst['global_best_position'])}")
-        # mst["x"] = mst["x_candidates"][indices]
-        # mst["a"] = updated_a[indices]
-
         mst["iter_x"].append(mst["x"].copy())
         mst["iter_a"].append(mst["a"].copy())
+
+        if self.merge:
+            mst["x"], mst["a"] = self.merge_atoms(mst["x"], mst["a"])
+
+            mst["x_candidates"] = mst["x"].reshape(-1, 1)
+            mst["a_candidates"] = mst["a"]
+
+            mst["iter_x"].append(mst["x"].copy())
+            mst["iter_a"].append(mst["a"].copy())
+
+            updated_a = self.correction_step(1000)
+
+            indices = np.abs(updated_a) > self.amplitude_threshold
+
+            print(f"Loss: {self.dual_certificate(mst['global_best_position'])}")
+            mst["x"] = mst["x_candidates"][indices]
+            mst["a"] = updated_a[indices]
+
+            mst["iter_x"].append(mst["x"].copy())
+            mst["iter_a"].append(mst["a"].copy())
 
         if self.verbose:
             print("After correction step:")
@@ -341,7 +348,7 @@ class FW(pxs.Solver):
         #     satisfy_all=True,
         # )
         # return stop_crit
-        return pxos.MaxIter(10)
+        return pxos.MaxIter(self.iter)
 
     def objective_func(self) -> pxt.NDArray:
         return self.dual_certificate(self._mstate['x'])
@@ -358,7 +365,11 @@ class FW(pxs.Solver):
         n_iter = len(mst["iter_x"])
         grid = np.linspace(0, 1, 2048)
 
-        fig, axs = plt.subplots(n_iter, 2, figsize=(15, 10 * n_iter))
+        if self.merge:
+            n_iter = n_iter // 3
+            fig, axs = plt.subplots(n_iter, 4, figsize=(15, 5 * n_iter))
+        else:
+            fig, axs = plt.subplots(n_iter, 2, figsize=(10, 5 * n_iter))
 
         # Initial dual certificate
         dual_cert = DualCertificate(np.array([]), np.array([]), self.y, self.get_forward_operator(np.array([])), self.lambda_)
@@ -368,30 +379,50 @@ class FW(pxs.Solver):
             # Normalize the dual certificate
             eta = np.max(np.abs(a)) * eta / np.max(np.abs(eta))
 
-            # Plot for the first column
-            l1, = axs[i, 0].plot(grid, eta, label='Dual Certificate (Normalized)')
-            s1 = axs[i, 0].stem(x, a, linefmt='k.--', markerfmt='ko', basefmt=" ", label='Ground Truth')
-            s2 = axs[i, 0].stem(mst["iter_x"][i], mst["iter_a"][i], linefmt='r.--', markerfmt='ro', basefmt=" ", label='Reconstruction')
-            axs[i, 0].set_title(f"Iteration {i + 1}")
-            axs[i, 0].grid(True)
+            idx = i * 3 if self.merge else i
 
             # Plot for the second column
-            axs[i, 1].plot(grid, eta, label='Dual Certificate (Normalized)')
-            # s3 = axs[i, 1].stem(mst["iter_candidates"][i//3], np.ones_like(mst["iter_candidates"][i//3]), linefmt='k.--', markerfmt='k.', basefmt=" ", label='Candidates')
-            s3 = axs[i, 1].stem(mst["iter_candidates"][i], np.ones_like(mst["iter_candidates"][i]),
+            s1 = axs[i, 0].stem(mst["iter_candidates"][i], np.ones_like(mst["iter_candidates"][i]),
                                 linefmt='k.--', markerfmt='k.', basefmt=" ", label='Candidates')
+            axs[i, 0].plot(grid, eta, label='Dual Certificate (Normalized)', color='tab:blue')
+            axs[i, 0].set_title(f"Candidates - Iteration {i + 1}")
+            axs[i, 0].grid(True)
+
+            # Plot for the first column
+            l1, = axs[i, 1].plot(grid, eta, label='Dual Certificate (Normalized)')
+            s2 = axs[i, 1].stem(x, a, linefmt='k.--', markerfmt='ko', basefmt=" ", label='Ground Truth')
+            s3 = axs[i, 1].stem(mst["iter_x"][idx], mst["iter_a"][idx], linefmt='r.--', markerfmt='ro', basefmt=" ", label='Reconstruction')
             axs[i, 1].set_title(f"Iteration {i + 1}")
             axs[i, 1].grid(True)
 
+            if self.merge:
+                idx += 1
+                axs[i, 2].plot(grid, eta, label='Dual Certificate (Normalized)')
+                axs[i, 2].stem(x, a, linefmt='k.--', markerfmt='ko', basefmt=" ", label='Ground Truth')
+                axs[i, 2].stem(mst["iter_x"][idx], mst["iter_a"][idx], linefmt='r.--', markerfmt='ro', basefmt=" ",
+                                    label='Reconstruction')
+                axs[i, 2].set_title(f"Merge")
+                axs[i, 2].grid(True)
+
+                idx += 1
+                axs[i, 3].plot(grid, eta, label='Dual Certificate (Normalized)')
+                axs[i, 3].stem(x, a, linefmt='k.--', markerfmt='ko', basefmt=" ", label='Ground Truth')
+                axs[i, 3].stem(mst["iter_x"][idx], mst["iter_a"][idx], linefmt='r.--', markerfmt='ro', basefmt=" ",
+                               label='Reconstruction')
+                axs[i, 3].set_title(f"2nd amplitudes update")
+                axs[i, 3].grid(True)
+
             # Update the dual certificate
-            dual_cert = DualCertificate(mst["iter_x"][i], mst["iter_a"][i], self.y, self.get_forward_operator(mst["iter_x"][i]), self.lambda_)
+            idx = i * 3 if self.merge else i
+            dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.get_forward_operator(mst["iter_x"][idx]), self.lambda_)
             eta = dual_cert(grid)
 
             # Legend
             if i == 0:
                 handles = [l1, s1, s2, s3]
-                labels = ['Dual Certificate (Normalized)', 'Ground Truth', 'Reconstruction', 'Candidates']
+                labels = ['Dual Certificate (Normalized)', 'Candidates', 'Ground Truth', 'Reconstruction']
                 # Place legend outside the plot area
                 fig.legend(handles, labels, loc='upper center', ncol=2)
 
         plt.show()
+        # plt.savefig("results.png")
