@@ -7,9 +7,9 @@ if __name__ == '__main__':
     np.random.seed(1)
 
     x0 = np.array([0.1, 0.25, 0.5, 0.7, 0.9])
-    a0 = np.array([1, 1.5, 0.5, 2, 5])
+    # a0 = np.array([1, 1.5, 0.5, 2, 5])
     # a0 = np.array([1, 15, 0.5, -3, 5])
-    # a0 = np.array([1, 1, 1, 1, 1])
+    a0 = np.array([1, 1, 1, 1, 1])
 
     # fc = 20
     # N = 2 * fc + 1
@@ -26,12 +26,19 @@ if __name__ == '__main__':
     print(forward_op.adjoint_function(y)(forward_op.x) @ a0)
 
     y0 = forward_op(a0)
-    sigma = 0.12 * np.linalg.norm(y0)
-    w = np.fft.fftshift(np.fft.fft(np.random.randn(N, 1))).ravel()
-    w = w / np.linalg.norm(w) * sigma
+
+    # add noise
+    psnr = 20
+    y0_max = np.max(np.abs(y0))
+    mse_db = 20 * np.log10(y0_max) - psnr
+    mse = 10 ** (mse_db / 10)
+    w = np.random.normal(0, np.sqrt(mse / 2), (N, 2)).view(np.complex128).ravel()
     y = y0 + w
 
-    lambda_ = 1
+    lambda_max = np.linalg.norm(forward_op.adjoint(y), np.inf)
+    print("lambda_max = ", lambda_max)
+    lambda_ = 0.1 * lambda_max
+
     solver = FW(y, forward_op, lambda_)
     solver.fit()
     solver.plot(x0, a0)
