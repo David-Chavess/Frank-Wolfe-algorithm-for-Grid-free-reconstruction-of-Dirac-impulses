@@ -1,29 +1,11 @@
-from typing import Self, Callable
+from typing import Callable
 
 import numpy as np
 import pyxu.info.ptype as pxt
-import pyxu.util as pxu
-from pyxu.abc.operator import LinOp, Func
+from pyxu.abc.operator import Func
+from pyxu.util import view_as_real, view_as_complex
 
-
-class MyLinOp(LinOp):
-    def apply(self, a: pxt.NDArray) -> pxt.NDArray:
-        pass
-
-    def adjoint(self, y: pxt.NDArray) -> pxt.NDArray:
-        pass
-
-    def adjoint_function(self, y: pxt.NDArray) -> Callable:
-        pass
-
-    def _meta(self):
-        pass
-
-    def estimate_diff_lipschitz(self, **kwargs) -> pxt.Real:
-        pass
-
-    def get_new_operator(self, x: pxt.NDArray) -> Self:
-        pass
+from src.operators.my_lin_op import MyLinOp
 
 
 class FourierOperator(MyLinOp):
@@ -33,19 +15,20 @@ class FourierOperator(MyLinOp):
         self.w = w.reshape(-1, 1)
         self.n_measurements = n_measurements
 
-        xp = pxu.get_array_module(self.x)
-        self.fourier = xp.exp(-2j * np.pi * np.outer(self.w, x))
+        self.fourier = np.exp(-2j * np.pi * np.outer(self.w, x))
 
-        super().__init__(max(len(x), 1), n_measurements)
+        super().__init__(max(len(x), 1), (n_measurements, 2))
 
     def apply(self, a: pxt.NDArray) -> pxt.NDArray:
-        return self.fourier @ a.ravel()
+        return view_as_real(self.fourier @ a)
 
     def adjoint(self, y: pxt.NDArray) -> pxt.NDArray:
         # return self.adjoint_function(y)(self.x)
-        return np.real(self.fourier.conj().T @ y.ravel())
+        y = view_as_complex(y)
+        return np.real(self.fourier.conj().T @ y)
 
     def adjoint_function(self, y: pxt.NDArray) -> Callable:
+        y = view_as_complex(y)
         return lambda t: np.real(np.exp(2j * np.pi * np.outer(self.w, t)).T @ y)
 
     def get_new_operator(self, x: pxt.NDArray) -> MyLinOp:
