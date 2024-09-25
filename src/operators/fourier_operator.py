@@ -23,7 +23,7 @@ class FourierOperator(MyLinOp):
         return view_as_real(self.fourier @ a)
 
     def adjoint(self, y: pxt.NDArray) -> pxt.NDArray:
-        # return self.adjoint_function(y)(self.x)
+        # Equivalent to self.adjoint_function(y)(self.x)
         y = view_as_complex(y)
         return np.real(self.fourier.conj().T @ y)
 
@@ -43,6 +43,44 @@ class FourierOperator(MyLinOp):
     def get_PeriodicFourierOperator(x: pxt.NDArray, n_measurements: int, fc: int) -> MyLinOp:
         w = np.arange(-fc, fc + 1)
         return FourierOperator(x, w, n_measurements)
+
+
+class DiffFourierOperator(MyLinOp):
+
+    def __init__(self, w: pxt.NDArray, n_measurements: int, input_size: int):
+        self.w = w.reshape(-1, 1)
+        self.n_measurements = n_measurements
+        self.input_size = input_size
+
+        self.fourier = lambda t: np.exp(-2j * np.pi * np.outer(self.w, t))
+
+        super().__init__((input_size, 1), (n_measurements, 2))
+
+    def apply(self, xa: pxt.NDArray) -> pxt.NDArray:
+        x, a = np.split(xa, 2)
+        return self.fourier(x) @ a
+
+    def grad_x(self, arr: pxt.NDArray) -> pxt.NDArray:
+        x, a = np.split(arr, 2)
+        return (self.fourier(x) * -2j * np.pi * self.w).T.conj()
+
+    def grad_a(self, arr: pxt.NDArray) -> pxt.NDArray:
+        x, a = np.split(arr, 2)
+        return self.fourier(x).T.conj()
+
+    def adjoint(self, y: pxt.NDArray) -> pxt.NDArray:
+        pass
+
+    def adjoint_function(self, y: pxt.NDArray) -> Callable:
+        y = view_as_complex(y)
+        return lambda t: np.real(np.exp(2j * np.pi * np.outer(self.w, t)).T @ y)
+
+    def get_new_operator(self, x: pxt.NDArray) -> MyLinOp:
+        return DiffFourierOperator(self.w, self.n_measurements, self.input_size)
+
+    @staticmethod
+    def get_DiffFourierOperator(op: FourierOperator) -> MyLinOp:
+        return DiffFourierOperator(op.w, op.n_measurements, 2*len(op.x))
 
 
 class DualCertificate(Func):

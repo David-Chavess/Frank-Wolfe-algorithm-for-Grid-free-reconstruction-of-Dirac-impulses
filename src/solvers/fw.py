@@ -11,8 +11,10 @@ import pyxu.operator as pxop
 import pyxu.opt.stop as pxos
 from pyxu.abc import StoppingCriterion
 from pyxu.opt.solver.pgd import PGD
+from pyxu.util import as_real_op, view_as_real, view_as_complex
+from scipy.optimize import linprog, minimize
 
-from src.operators.fourier_operator import DualCertificate
+from src.operators.fourier_operator import DualCertificate, DiffFourierOperator
 from src.operators.my_lin_op import MyLinOp
 
 
@@ -23,34 +25,39 @@ class FW(pxs.Solver):
             measurements: pxt.NDArray,
             forward_op: MyLinOp,
             lambda_: float,
+            x_dim: int,
+            bounds: pxt.NDArray,
+            verbose: bool = False,
             **kwargs):
-        super().__init__(**kwargs)
+        super().__init__()
 
         self.y = measurements
         self.forward_op = forward_op
         self.lambda_ = lambda_
-        self.x_dim = 1
+        self.x_dim = x_dim
+        self.bounds = bounds
 
         # Initialize the swarm parameters
-        self.swarm_bounds = np.array([[0], [1]])
-        self.swarm_iterations = 10
-        self.swarm_n_particles = 1000
-        self.swarm_w = 0.25
-        self.swarm_c1 = 0.75
-        self.swarm_c2 = 0.25
+        self.swarm_iterations = kwargs.get("swarm_iterations", 10)
+        self.swarm_n_particles = kwargs.get("swarm_n_particles", 100)
+        self.swarm_w = kwargs.get("swarm_w", 0.25)
+        self.swarm_c1 = kwargs.get("swarm_c1", 0.75)
+        self.swarm_c2 = kwargs.get("swarm_c2", 0.25)
 
-        self.amplitude_threshold = 0.
-        self.merge_threshold = 0.01
+        self.amplitude_threshold = kwargs.get("amplitude_threshold", 0.)
+        self.merge_threshold = kwargs.get("merge_threshold", 0.1)
 
-        self.verbose = True
-        self.show_progress = False
+        self.verbose = verbose
 
-        self.merge = False
-        self.add_one = False
-        self.iter = 10
+        self.merge = kwargs.get("merge", False)
+        self.add_one = kwargs.get("add_one", False)
+        self.sliding = kwargs.get("sliding", False)
+        self.simplex = kwargs.get("simplex", False)
 
-        self.min_iter = 3
-        self.dual_certificate_tol = 1e-2
+        self.max_iter = kwargs.get("max_iter", 10)
+
+        self.min_iter = kwargs.get("min_iter", 3)
+        self.dual_certificate_tol = kwargs.get("dual_certificate_tol", 1e-2)
 
     def m_init(self, **kwargs):
         mst = self._mstate
@@ -58,6 +65,8 @@ class FW(pxs.Solver):
         # Initialize the position and amplitude of the diracs
         mst["x"] = np.array([], dtype=np.float64)
         mst["a"] = np.array([], dtype=np.float64)
+
+        mst["swarm_durations"] = []
 
         mst["correction_iterations"] = []
         mst["correction_durations"] = []
@@ -70,7 +79,7 @@ class FW(pxs.Solver):
     def swarm_init(self):
         mst = self._mstate
         # Initialize the particles and velocities
-        particles = np.random.uniform(low=self.swarm_bounds[0], high=self.swarm_bounds[1],
+        particles = np.random.uniform(low=self.bounds[0], high=self.bounds[1],
                                       size=(self.swarm_n_particles, self.x_dim))
         mst['particles'] = particles
         mst['velocities'] = np.zeros((self.swarm_n_particles, self.x_dim))
@@ -120,7 +129,7 @@ class FW(pxs.Solver):
             mst['particles'] += mst['velocities']
 
             # Enforce the bounds of the search space
-            mst['particles'] = np.clip(mst['particles'], self.swarm_bounds[0], self.swarm_bounds[1])
+            mst['particles'] = np.clip(mst['particles'], self.bounds[0], self.bounds[1])
 
             # Evaluate the objective function
             costs = self.dual_certificate(mst["particles"])
@@ -173,7 +182,7 @@ class FW(pxs.Solver):
             a0[0] = 1e-5
 
         penalty = pxop.L1Norm(dim)
-        apgd = PGD(data_fid, self.lambda_ * penalty, show_progress=self.show_progress)
+        apgd = PGD(data_fid, self.lambda_ * penalty, show_progress=False)
 
         min_iter = pxos.MaxIter(n=10)
         max_duration = pxos.MaxDuration(t=dt.timedelta(seconds=60))
@@ -185,35 +194,44 @@ class FW(pxs.Solver):
             tau=1 / data_fid.diff_lipschitz,
             stop_crit=stop,
         )
-        # mst["correction_iterations"].append(apgd.stats()[1]["iteration"][-1])
-        # mst["correction_durations"].append(apgd.stats()[1]["duration"][-1])
+        mst["correction_iterations"].append(apgd.stats()[1]["iteration"][-1])
+        mst["correction_durations"].append(apgd.stats()[1]["duration"][-1])
         sol, _ = apgd.stats()
 
         updated_a = sol["x"]
-        return updated_a
+
+        mst["updated_a"] = updated_a
+
+        indices = np.abs(updated_a) > self.amplitude_threshold
+
+        x = mst["x_candidates"][indices]
+        a = updated_a[indices]
+        return x, a
 
     def data_fid(self, support_indices: pxt.NDArray) -> pxo.DiffFunc:
+        """Get the data fidelity term"""
         forward_op = self.get_forward_operator(support_indices)
         y = self.y
         data_fid = 0.5 * pxop.SquaredL2Norm(dim_shape=y.shape).argshift(-y) * forward_op
-        # t1 = time()
-        # t = data_fid.estimate_diff_lipschitz(method="svd", tol=1e-1)
-        # print(t)
-        # print("Time to estimate diff lipschitz: ", time() - t1)
         data_fid.diff_lipschitz = max(len(y) * len(forward_op.x) / 4, 2 * len(y))
         return data_fid
 
     def get_forward_operator(self, x: pxt.NDArray) -> MyLinOp:
+        """Get new updated forward operator with the new positions of the atoms"""
         self.forward_op = self.forward_op.get_new_operator(x)
         return self.forward_op
 
     def m_step(self):
         # Find a list of dirac positions candidates
+        t1 = time()
         self.swarm_step()
+        t2 = time()
 
         mst = self._mstate
+        mst["swarm_durations"].append(t2 - t1)
 
         if self.verbose:
+            print(f"Swarm step duration: {t2 - t1}")
             print("Before correction step:")
             print(f"Number of atoms: {len(mst['x'])}")
             # print(f"Positions: {mst['x'].ravel()}")
@@ -221,41 +239,75 @@ class FW(pxs.Solver):
 
         mst["iter_candidates"].append(mst["best_positions"].copy())
 
+        # Add new atoms to the current set of atoms
         if self.add_one:
+            # Add the global best particles to the list of candidates
             mst["x_candidates"] = np.append(mst["x"], mst["global_best_position"])
             mst["a_candidates"] = np.append(mst["a"], 0)
         else:
+            # Add all particles to the list of candidates
             mst["x_candidates"] = np.concatenate([mst["x"].reshape(-1, 1), mst["best_positions"]])
             mst["a_candidates"] = np.concatenate([mst["a"], np.zeros_like(mst["best_costs"])])
 
-        updated_a = self.correction_step()
-
-        indices = np.abs(updated_a) > self.amplitude_threshold
-
-        mst["x"] = mst["x_candidates"][indices]
-        mst["a"] = updated_a[indices]
+        t1 = time()
+        # Correction step to update amplitudes and remove candidates with 0 amplitudes
+        mst["x"], mst["a"] = self.correction_step()
+        t2 = time()
 
         mst["iter_x"].append(mst["x"].copy())
         mst["iter_a"].append(mst["a"].copy())
+
+        if self.verbose:
+            print(f"Correction step duration: {t2 - t1}")
+            print("After correction step:")
+            print(f"Number of atoms: {len(mst['x'])}")
+            # print(f"Positions: {mst['x'].ravel()}")
+            # print(f"Amplitudes: {mst['a'].ravel()}")
 
         if self.merge:
             if self.verbose:
                 print("Before merge step:")
                 print(f"Number of atoms: {len(mst['x'])}")
+                # print(f"Positions: {mst['x'].ravel()}")
+                # print(f"Amplitudes: {mst['a'].ravel()}")
 
             mst["x"], mst["a"] = self.merge_atoms(mst["x"], mst["a"])
 
             mst["iter_x"].append(mst["x"].copy())
             mst["iter_a"].append(mst["a"].copy())
 
-        if self.verbose:
-            print("After correction step:")
-            print(f"Number of atoms: {len(mst['x'])}")
-            # print(f"Positions: {mst['x'].ravel()}")
-            # print(f"Amplitudes: {mst['a'].ravel()}")
+        if self.simplex:
+            mst["x"], mst["a"] = self.simplex_compute()
+
+            mst["iter_x"].append(mst["x"].copy())
+            mst["iter_a"].append(mst["a"].copy())
+
+        if self.sliding:
+            if self.verbose:
+                print("Before sliding step:")
+                print(f"Number of atoms: {len(mst['x'])}")
+                # print(f"Positions: {mst['x'].ravel()}")
+                # print(f"Amplitudes: {mst['a'].ravel()}")
+
+            t1 = time()
+            mst["x"], mst["a"] = self.sliding_compute()
+            t2 = time()
+
+            mst["iter_x"].append(mst["x"].copy())
+            mst["iter_a"].append(mst["a"].copy())
+
+            if self.verbose:
+                print(f"Sliding step duration: {t2 - t1}")
+                print("After sliding step:")
+                print(f"Number of atoms: {len(mst['x'])}")
+                print(f"Positions: {mst['x'].ravel()}")
+                print(f"Amplitudes: {mst['a'].ravel()}")
 
     def solution(self) -> pxt.NDArray:
         return self._mstate['x'], self._mstate['a']
+
+    def merged_solution(self) -> pxt.NDArray:
+        return self.merge_atoms(self._mstate['x'], self._mstate['a'])
 
     def merge_atoms(self, x: pxt.NDArray, a: pxt.NDArray) -> pxt.NDArray:
         """
@@ -300,9 +352,61 @@ class FW(pxs.Solver):
 
         return np.array([x for x, _ in merged_list]), np.array([a for _, a in merged_list])
 
+    def simplex_compute(self):
+        updated_a = self._mstate["updated_a"]
+
+        s = self.forward_op.fourier.shape
+        A = as_real_op(self.forward_op.fourier).reshape((s[0] * 2, s[1] * 2))
+        a = view_as_real(updated_a.astype(np.complex128)).ravel()
+        b = A @ a
+        lp = linprog(c=np.ones_like(a), A_eq=A, b_eq=b, method='simplex',
+                     options={"presolve": False, "tol": 1e-2})
+        print(lp.success)
+        print(lp.message)
+        a = lp.x
+        a = np.real(view_as_complex(a.reshape((a.shape[0] // 2, 2))).ravel())
+        updated_a = a
+        indices = np.abs(updated_a) > self.amplitude_threshold
+        x = self._mstate["x_candidates"][indices]
+        a = updated_a[indices]
+        return x, a
+
+    def sliding_compute(self):
+        x_tmp = self._mstate["x"].copy().ravel()
+        a_tmp = self._mstate["a"].copy().ravel()
+        op = DiffFourierOperator.get_DiffFourierOperator(self.forward_op)
+        forward_operator = self.forward_op
+
+        def fun(xa):
+            x, a = np.split(xa, 2)
+            z = op(xa) - view_as_complex(self.y)
+            return np.real(z.T.conj() @ z) + self.lambda_ * np.sum(np.abs(a))
+
+        def grad(xa):
+            x, a = np.split(xa, 2)
+            z = op(xa) - view_as_complex(self.y)
+            grad_x = 2 * a * (op.grad_x(xa) @ z)
+            grad_a = 2 * op.grad_a(xa) @ z + self.lambda_ * np.sign(a)
+            return np.real(np.concatenate([grad_x, grad_a]))
+
+        # forward_operator = forward_operator.get_new_operator(x_tmp)
+        # dual_cert = DualCertificate(x_tmp, a_tmp, self.y, forward_operator, self.lambda_)
+        # loss = np.max(np.abs(dual_cert.apply(np.linspace(0, 1, 1000)))).item()
+        # print(f"Before Sliding - Loss: {loss}")
+        op = minimize(fun, np.concatenate([x_tmp, a_tmp]), method="BFGS")
+        # op = minimize(fun, np.concatenate([x_tmp, a_tmp]), method="BFGS", jac=grad)
+        x_tmp, a_tmp = np.split(op.x, 2)
+        print("Number of iterations: ", op.nit)
+        # forward_operator = forward_operator.get_new_operator(x_tmp)
+        # dual_cert = DualCertificate(x_tmp, a_tmp, self.y, forward_operator, self.lambda_)
+        # loss = np.max(np.abs(dual_cert.apply(np.linspace(0, 1, 1000)))).item()
+        # print(f"After Sliding - Loss: {loss}")
+
+        return x_tmp, a_tmp
+
     def default_stop_crit(self) -> StoppingCriterion:
-        stop_crit = StopDualCertificate(self.y, self.forward_op, self.lambda_, self.dual_certificate_tol)
-        return (stop_crit & pxos.MaxIter(self.min_iter)) | pxos.MaxIter(self.iter)
+        stop_crit = StopDualCertificate(self.y, self.forward_op, self.lambda_, self.bounds, self.dual_certificate_tol)
+        return (stop_crit & pxos.MaxIter(self.min_iter)) | pxos.MaxIter(self.max_iter)
 
     def objective_func(self) -> pxt.NDArray:
         return self.dual_certificate(self._mstate["x"])
@@ -317,9 +421,11 @@ class FW(pxs.Solver):
         mst = self._mstate
 
         n_iter = len(mst["iter_x"])
-        grid = np.linspace(0, 1, 2048)
+        grid = np.linspace(self.bounds[0], self.bounds[1], 2048)
 
-        if self.merge:
+        need_extra_plot = self.merge or self.sliding or self.simplex
+
+        if need_extra_plot:
             n_iter = n_iter // 2
             fig, axs = plt.subplots(n_iter, 3, figsize=(20, 5 * n_iter))
         else:
@@ -332,7 +438,7 @@ class FW(pxs.Solver):
 
         for i in range(n_iter):
             # Normalize the dual certificate
-            idx = i * 2 if self.merge else i
+            idx = i * 2 if need_extra_plot else i
 
             s1 = axs[i, 0].stem(mst["iter_candidates"][i], np.ones_like(mst["iter_candidates"][i]),
                                 linefmt='k.--', markerfmt='k.', basefmt=" ", label='Candidates')
@@ -349,10 +455,10 @@ class FW(pxs.Solver):
             s2 = axs[i, 1].stem(x, a, linefmt='k.--', markerfmt='ko', basefmt=" ", label='Ground Truth')
             s3 = axs[i, 1].stem(mst["iter_x"][idx], mst["iter_a"][idx], linefmt='r.--', markerfmt='ro', basefmt=" ",
                                 label='Reconstruction')
-            axs[i, 1].set_title(f"Iteration {i + 1}")
+            axs[i, 1].set_title(f"Correction - Iteration {i + 1}")
             axs[i, 1].grid(True)
 
-            if self.merge:
+            if need_extra_plot:
                 idx += 1
 
                 dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y,
@@ -363,11 +469,22 @@ class FW(pxs.Solver):
                 axs[i, 2].stem(x, a, linefmt='k.--', markerfmt='ko', basefmt=" ", label='Ground Truth')
                 axs[i, 2].stem(mst["iter_x"][idx], mst["iter_a"][idx], linefmt='r.--', markerfmt='ro', basefmt=" ",
                                label='Reconstruction')
-                axs[i, 2].set_title(f"Merge")
+                # axs[i, 2].stem(mst["iter_x"][idx-1], mst["iter_a"][idx-1], linefmt='g.--', markerfmt='go', basefmt=" ",
+                #                label='R')
+                if self.merge:
+                    name = "Merge"
+                elif self.sliding:
+                    name = "Sliding"
+                elif self.simplex:
+                    name = "Simplex"
+                else:
+                    name = "None"
+
+                axs[i, 2].set_title(name + f" - Iteration {i + 1}")
                 axs[i, 2].grid(True)
 
             # Update the dual certificate
-            idx = i * 2 if self.merge else i
+            idx = i * 2 if need_extra_plot else i
             dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y,
                                         self.get_forward_operator(mst["iter_x"][idx]), self.lambda_)
             eta = dual_cert(grid)
@@ -382,15 +499,29 @@ class FW(pxs.Solver):
         plt.show()
         # plt.savefig("results.png")
 
+    def plot_solution(self, x0, a0, merged=False):
+        if merged:
+            x, a = self.merged_solution()
+        else:
+            x, a = self.solution()
+
+        plt.figure(figsize=(10, 5))
+        plt.stem(x0, a0, linefmt='k.--', markerfmt='ko', basefmt=" ", label='Ground Truth')
+        plt.stem(x, a, linefmt='r.--', markerfmt='ro', basefmt=" ", label='Reconstruction')
+        plt.title("Ground Truth vs Reconstruction")
+        plt.grid(True)
+        plt.legend()
+        plt.show()
 
 class StopDualCertificate(StoppingCriterion):
 
-    def __init__(self, y: pxt.NDArray, forward_operator: MyLinOp, lambda_: float, dual_certificate_tol: float = 1e-2):
+    def __init__(self, y: pxt.NDArray, forward_operator: MyLinOp, lambda_: float, bound: pxt.NDArray, dual_certificate_tol: float = 1e-2):
         self._val = -1.
         self.y = y
         self.forward_operator = forward_operator
         self.lambda_ = lambda_
         self.dual_certificate_tol = dual_certificate_tol
+        self.grid = np.linspace(bound[0], bound[1], 2048)
 
     def stop(self, state: cabc.Mapping[str]) -> bool:
         x, a = state["x"], state["a"]
@@ -401,9 +532,10 @@ class StopDualCertificate(StoppingCriterion):
         self.forward_operator = self.forward_operator.get_new_operator(x)
         dual_cert = DualCertificate(x, a, self.y, self.forward_operator, self.lambda_)
 
-        self._val = np.max(np.abs(dual_cert.apply(np.linspace(0, 1, 1000)))).item()
+        self._val = np.max(np.abs(dual_cert.apply(self.grid))).item()
         print(self.info())
-        return np.isclose(self._val, 1, atol=self.dual_certificate_tol).item()
+        # return np.isclose(self._val, 1, atol=self.dual_certificate_tol).item()
+        return self._val < 1 + self.dual_certificate_tol
 
     def info(self) -> cabc.Mapping[str, float]:
         return {"Dual Certificate max value": self._val}

@@ -1,11 +1,7 @@
-from time import time
-
 import numpy as np
 from matplotlib import pyplot as plt
 from pyxu.operator.linop.fft.filter import FFTConvolve
-from pyxu.util import view_as_real, view_as_complex
 
-from src.operators.conv_operator import ConvOperator
 from src.operators.fourier_operator import FourierOperator
 from src.solvers.fw import FW
 
@@ -32,9 +28,15 @@ if __name__ == '__main__':
     np.random.seed(1)
 
     x0 = np.array([0.1, 0.25, 0.5, 0.7, 0.9])
+    # x0 = np.array([-.5,-.1,.1,.5])
+    # a0 = np.array([0.8,0.8,0.8,0.8])
     a0 = np.array([1, 1.5, 0.5, 2, 5])
     # a0 = np.array([1, 15, 0.5, -3, 5])
     # a0 = np.array([1, 1, 1, 1, 1])
+
+    # x0 = np.array([0.1, 0.25, 0.5, 0.51, 0.7, 0.75, 0.9, 0.92])
+    # a0 = np.array([1, 1, 1, 1, 1, 1, 1, 1])
+    # a0 = np.array([-1, 0.5, 1, 1, 1, 3, 1, 1])
 
     # N = 100
     # grid = np.linspace(-1, 1, N)
@@ -51,7 +53,7 @@ if __name__ == '__main__':
     #
     # plt.plot(grid, out)
     # plt.show()
-
+    #
     # print("Check adjoint:")
     # y = np.random.uniform(-1, 1, N)
     # print(conv(a0) @ y)
@@ -59,30 +61,9 @@ if __name__ == '__main__':
     #
     # exit(0)
 
-    # fc = 20
-    # N = 2 * fc + 1
-    # forward_op = FourierOperator.get_PeriodicFourierOperator(x0, N, fc)
-
     N = 100
     bounds = np.array([-10, 10])
     forward_op = FourierOperator.get_RandomFourierOperator(x0, N, bounds)
-
-    # print("Check forward:")
-    # w = forward_op.w
-    # op = NUFFT3(x0, w)
-    # f1 = forward_op(a0)
-    # f2 = view_as_complex(op(view_as_real(a0.astype(np.complex128))))
-    # print(np.allclose(f1, f2, atol=1e-2))
-    #
-    # a1 = forward_op.adjoint(f1)
-    # a2 = np.real(view_as_complex(op.adjoint(view_as_real(f1))))
-    # print(np.allclose(a1, a2, atol=1e-2))
-
-    print("Check adjoint:")
-    y = np.random.uniform(-1, 1, (N, 2))
-    print(np.real(view_as_complex(forward_op(a0)).conj().T @ view_as_complex(y)))
-    print(forward_op.adjoint(y) @ a0)
-    print(forward_op.adjoint_function(y)(forward_op.x) @ a0)
 
     # Get measurements
     y0 = forward_op(a0)
@@ -93,10 +74,19 @@ if __name__ == '__main__':
     # y = add_snr(y0, psnr, N)
 
     # Get lambda
-    lambda_max = np.linalg.norm(forward_op.adjoint(y), np.inf)
+    lambda_max = max(abs((forward_op.adjoint(y))))
     print("lambda_max = ", lambda_max)
-    lambda_ = 0.05 * lambda_max
+    lambda_ = 0.1 * lambda_max
 
-    solver = FW(y, forward_op, lambda_)
+    x_dim = 1
+    kwargs = {"merge": False, "add_one": True, "sliding": True, "max_iter": 30, "dual_certificate_tol": 1e-2}
+    solver = FW(y, forward_op, lambda_, x_dim, bounds=np.array([[0], [1]]), verbose=True, **kwargs)
     solver.fit()
     solver.plot(x0, a0)
+    # solver.plot_solution(x0, a0, merged=True)
+
+    # x, a = solver.solution()
+    x, a = solver.merged_solution()
+    x = x[a > 0]
+    if len(x) == len(x0):
+        print("Distance: ", np.sum(np.abs(x - x0)))
