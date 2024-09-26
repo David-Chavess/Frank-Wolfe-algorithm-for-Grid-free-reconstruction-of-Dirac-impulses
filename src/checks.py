@@ -54,17 +54,21 @@ if __name__ == '__main__':
     lambda_ = 0.1 * lambda_max
 
     op = DiffFourierOperator.get_DiffFourierOperator(forward_op)
+
+
     def fun(xa):
         x, a = np.split(xa, 2)
         z = op(xa) - view_as_complex(y)
-        return np.real(z.T.conj() @ z) + lambda_ * np.sum(np.abs(a))
+        return np.real(z.T.conj() @ z) / 2 + lambda_ * np.sum(np.abs(a))
+
 
     def grad(xa):
         x, a = np.split(xa, 2)
         z = op(xa) - view_as_complex(y)
-        grad_x = 2 * a * (op.grad_x(xa) @ z)
-        grad_a = 2 * op.grad_a(xa) @ z + lambda_ * np.sign(a)
+        grad_x = a * (op.grad_x(xa) @ z)
+        grad_a = op.grad_a(xa) @ z + lambda_ * np.sign(a)
         return np.real(np.concatenate([grad_x, grad_a]))
+
 
     def finite_grad(xa):
         finite_grad = np.zeros_like(xa)
@@ -74,6 +78,7 @@ if __name__ == '__main__':
             xa_eps[i] += eps
             finite_grad[i] = (fun(xa_eps) - fun(xa)) / eps
         return finite_grad
+
 
     xa = np.concatenate([x0, a0])
     assert np.allclose(grad(xa), finite_grad(xa), atol=1e-2)

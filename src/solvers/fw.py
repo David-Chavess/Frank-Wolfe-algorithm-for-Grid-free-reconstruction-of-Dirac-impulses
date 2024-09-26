@@ -1,6 +1,7 @@
 import datetime as dt
 from collections import abc as cabc
 from time import time
+from typing import Dict, Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -28,8 +29,9 @@ class FW(pxs.Solver):
             x_dim: int,
             bounds: pxt.NDArray,
             verbose: bool = False,
+            options: Dict[str, Any] = None,
             **kwargs):
-        super().__init__()
+        super().__init__(**kwargs)
 
         self.y = measurements
         self.forward_op = forward_op
@@ -37,27 +39,30 @@ class FW(pxs.Solver):
         self.x_dim = x_dim
         self.bounds = bounds
 
-        # Initialize the swarm parameters
-        self.swarm_iterations = kwargs.get("swarm_iterations", 10)
-        self.swarm_n_particles = kwargs.get("swarm_n_particles", 100)
-        self.swarm_w = kwargs.get("swarm_w", 0.25)
-        self.swarm_c1 = kwargs.get("swarm_c1", 0.75)
-        self.swarm_c2 = kwargs.get("swarm_c2", 0.25)
+        if options is None:
+            options = {}
 
-        self.amplitude_threshold = kwargs.get("amplitude_threshold", 0.)
-        self.merge_threshold = kwargs.get("merge_threshold", 0.1)
+        # Initialize the swarm parameters
+        self.swarm_iterations = options.get("swarm_iterations", 10)
+        self.swarm_n_particles = options.get("swarm_n_particles", 100)
+        self.swarm_w = options.get("swarm_w", 0.25)
+        self.swarm_c1 = options.get("swarm_c1", 0.75)
+        self.swarm_c2 = options.get("swarm_c2", 0.25)
+
+        self.amplitude_threshold = options.get("amplitude_threshold", 0.)
+        self.merge_threshold = options.get("merge_threshold", 0.01)
 
         self.verbose = verbose
 
-        self.merge = kwargs.get("merge", False)
-        self.add_one = kwargs.get("add_one", False)
-        self.sliding = kwargs.get("sliding", False)
-        self.simplex = kwargs.get("simplex", False)
+        self.merge = options.get("merge", False)
+        self.add_one = options.get("add_one", False)
+        self.sliding = options.get("sliding", False)
+        self.simplex = options.get("simplex", False)
 
-        self.max_iter = kwargs.get("max_iter", 10)
+        self.max_iter = options.get("max_iter", 100)
 
-        self.min_iter = kwargs.get("min_iter", 3)
-        self.dual_certificate_tol = kwargs.get("dual_certificate_tol", 1e-2)
+        self.min_iter = options.get("min_iter", 2)
+        self.dual_certificate_tol = options.get("dual_certificate_tol", 1e-2)
 
     def m_init(self, **kwargs):
         mst = self._mstate
@@ -70,6 +75,8 @@ class FW(pxs.Solver):
 
         mst["correction_iterations"] = []
         mst["correction_durations"] = []
+
+        mst["sliding_durations"] = []
 
         # Plot
         mst["iter_candidates"] = []
@@ -195,7 +202,7 @@ class FW(pxs.Solver):
             stop_crit=stop,
         )
         mst["correction_iterations"].append(apgd.stats()[1]["iteration"][-1])
-        mst["correction_durations"].append(apgd.stats()[1]["duration"][-1])
+        # mst["correction_durations"].append(apgd.stats()[1]["duration"][-1])
         sol, _ = apgd.stats()
 
         updated_a = sol["x"]
@@ -253,6 +260,7 @@ class FW(pxs.Solver):
         # Correction step to update amplitudes and remove candidates with 0 amplitudes
         mst["x"], mst["a"] = self.correction_step()
         t2 = time()
+        mst["correction_durations"].append(t2 - t1)
 
         mst["iter_x"].append(mst["x"].copy())
         mst["iter_a"].append(mst["a"].copy())
@@ -292,6 +300,7 @@ class FW(pxs.Solver):
             t1 = time()
             mst["x"], mst["a"] = self.sliding_compute()
             t2 = time()
+            mst["sliding_durations"].append(t2 - t1)
 
             mst["iter_x"].append(mst["x"].copy())
             mst["iter_a"].append(mst["a"].copy())
@@ -300,8 +309,8 @@ class FW(pxs.Solver):
                 print(f"Sliding step duration: {t2 - t1}")
                 print("After sliding step:")
                 print(f"Number of atoms: {len(mst['x'])}")
-                print(f"Positions: {mst['x'].ravel()}")
-                print(f"Amplitudes: {mst['a'].ravel()}")
+                # print(f"Positions: {mst['x'].ravel()}")
+                # print(f"Amplitudes: {mst['a'].ravel()}")
 
     def solution(self) -> pxt.NDArray:
         return self._mstate['x'], self._mstate['a']
@@ -375,34 +384,21 @@ class FW(pxs.Solver):
         x_tmp = self._mstate["x"].copy().ravel()
         a_tmp = self._mstate["a"].copy().ravel()
         op = DiffFourierOperator.get_DiffFourierOperator(self.forward_op)
-        forward_operator = self.forward_op
 
         def fun(xa):
             x, a = np.split(xa, 2)
             z = op(xa) - view_as_complex(self.y)
-            return np.real(z.T.conj() @ z) + self.lambda_ * np.sum(np.abs(a))
+            return np.real(z.T.conj() @ z) / 2 + self.lambda_ * np.sum(np.abs(a))
 
         def grad(xa):
             x, a = np.split(xa, 2)
             z = op(xa) - view_as_complex(self.y)
-            grad_x = 2 * a * (op.grad_x(xa) @ z)
-            grad_a = 2 * op.grad_a(xa) @ z + self.lambda_ * np.sign(a)
+            grad_x = a * (op.grad_x(xa) @ z)
+            grad_a = op.grad_a(xa) @ z + self.lambda_ * np.sign(a)
             return np.real(np.concatenate([grad_x, grad_a]))
 
-        # forward_operator = forward_operator.get_new_operator(x_tmp)
-        # dual_cert = DualCertificate(x_tmp, a_tmp, self.y, forward_operator, self.lambda_)
-        # loss = np.max(np.abs(dual_cert.apply(np.linspace(0, 1, 1000)))).item()
-        # print(f"Before Sliding - Loss: {loss}")
-        op = minimize(fun, np.concatenate([x_tmp, a_tmp]), method="BFGS")
-        # op = minimize(fun, np.concatenate([x_tmp, a_tmp]), method="BFGS", jac=grad)
-        x_tmp, a_tmp = np.split(op.x, 2)
-        print("Number of iterations: ", op.nit)
-        # forward_operator = forward_operator.get_new_operator(x_tmp)
-        # dual_cert = DualCertificate(x_tmp, a_tmp, self.y, forward_operator, self.lambda_)
-        # loss = np.max(np.abs(dual_cert.apply(np.linspace(0, 1, 1000)))).item()
-        # print(f"After Sliding - Loss: {loss}")
-
-        return x_tmp, a_tmp
+        op = minimize(fun, np.concatenate([x_tmp, a_tmp]), method="BFGS", jac=grad)
+        return np.split(op.x, 2)
 
     def default_stop_crit(self) -> StoppingCriterion:
         stop_crit = StopDualCertificate(self.y, self.forward_op, self.lambda_, self.bounds, self.dual_certificate_tol)
@@ -457,6 +453,8 @@ class FW(pxs.Solver):
                                 label='Reconstruction')
             axs[i, 1].set_title(f"Correction - Iteration {i + 1}")
             axs[i, 1].grid(True)
+            axs[i, 1].set_zorder(1)
+            axs[i, 1].set_frame_on(False)
 
             if need_extra_plot:
                 idx += 1
@@ -482,6 +480,8 @@ class FW(pxs.Solver):
 
                 axs[i, 2].set_title(name + f" - Iteration {i + 1}")
                 axs[i, 2].grid(True)
+                axs[i, 2].set_zorder(1)
+                axs[i, 2].set_frame_on(False)
 
             # Update the dual certificate
             idx = i * 2 if need_extra_plot else i
@@ -513,9 +513,11 @@ class FW(pxs.Solver):
         plt.legend()
         plt.show()
 
+
 class StopDualCertificate(StoppingCriterion):
 
-    def __init__(self, y: pxt.NDArray, forward_operator: MyLinOp, lambda_: float, bound: pxt.NDArray, dual_certificate_tol: float = 1e-2):
+    def __init__(self, y: pxt.NDArray, forward_operator: MyLinOp, lambda_: float, bound: pxt.NDArray,
+                 dual_certificate_tol: float = 1e-2):
         self._val = -1.
         self.y = y
         self.forward_operator = forward_operator
@@ -533,9 +535,7 @@ class StopDualCertificate(StoppingCriterion):
         dual_cert = DualCertificate(x, a, self.y, self.forward_operator, self.lambda_)
 
         self._val = np.max(np.abs(dual_cert.apply(self.grid))).item()
-        print(self.info())
-        # return np.isclose(self._val, 1, atol=self.dual_certificate_tol).item()
-        return self._val < 1 + self.dual_certificate_tol
+        return np.isclose(self._val, 1, atol=self.dual_certificate_tol).item()
 
     def info(self) -> cabc.Mapping[str, float]:
         return {"Dual Certificate max value": self._val}
