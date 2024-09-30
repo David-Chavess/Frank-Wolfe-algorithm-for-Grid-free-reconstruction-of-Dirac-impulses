@@ -202,7 +202,6 @@ class FW(pxs.Solver):
             stop_crit=stop,
         )
         mst["correction_iterations"].append(apgd.stats()[1]["iteration"][-1])
-        # mst["correction_durations"].append(apgd.stats()[1]["duration"][-1])
         sol, _ = apgd.stats()
 
         updated_a = sol["x"]
@@ -313,7 +312,7 @@ class FW(pxs.Solver):
                 # print(f"Amplitudes: {mst['a'].ravel()}")
 
     def solution(self) -> pxt.NDArray:
-        return self._mstate['x'], self._mstate['a']
+        return self._mstate['x'].ravel(), self._mstate['a'].ravel()
 
     def merged_solution(self) -> pxt.NDArray:
         return self.merge_atoms(self._mstate['x'], self._mstate['a'])

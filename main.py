@@ -1,11 +1,10 @@
 from time import time
 
 import numpy as np
-from matplotlib import pyplot as plt
-from pyxu.operator.linop.fft.filter import FFTConvolve
 
 from src.operators.fourier_operator import FourierOperator
 from src.solvers.fw import FW
+from src.metrics.flat_norm import flat_norm
 
 
 def add_snr(y0, snr, N):
@@ -32,13 +31,13 @@ if __name__ == '__main__':
     x0 = np.array([0.1, 0.25, 0.5, 0.7, 0.9])
     # x0 = np.array([-.5,-.1,.1,.5])
     # a0 = np.array([0.8,0.8,0.8,0.8])
-    a0 = np.array([1, 1.5, 0.5, 2, 5])
+    # a0 = np.array([1, 1.5, 0.5, 2, 5])
     # a0 = np.array([1, 15, 0.5, -3, 5])
-    # a0 = np.array([1, 1, 1, 1, 1])
+    a0 = np.array([1, 1, 1, 1, 1])
 
-    x0 = np.array([0.1, 0.25, 0.5, 0.51, 0.7, 0.75, 0.9, 0.92])
+    # x0 = np.array([0.1, 0.25, 0.5, 0.51, 0.7, 0.75, 0.9, 0.92])
     # a0 = np.array([1, 1, 1, 1, 1, 1, 1, 1])
-    a0 = np.array([-1, 0.5, 1, 1, 1, 3, 1, 1])
+    # a0 = np.array([-1, 0.5, 1, 1, 1, 3, 1, 1])
 
     # N = 100
     # grid = np.linspace(-1, 1, N)
@@ -91,14 +90,19 @@ if __name__ == '__main__':
     print("Correction iterations: ", solver._mstate["correction_iterations"])
     print("Sliding Time: ", solver._mstate["sliding_durations"])
     print("Iterations: ", solver._astate["idx"])
-    solver.plot(x0, a0)
+    # solver.plot(x0, a0)
     # solver.plot_solution(x0, a0, merged=False)
 
-    # x, a = solver.solution()
-    x, a = solver.merged_solution()
+    x, a = solver.solution()
+    # x, a = solver.merged_solution()
     x = np.sort(x[a > 0])
-    if len(x) == len(x0):
-        print("Distance: ", np.sum(np.abs(x - x0)))
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.001).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.005).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.01).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.02).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.05).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.1).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 1).cost)
 
     options = {"merge": False, "add_one": False, "sliding": False, "max_iter": 30, "dual_certificate_tol": 1e-2, "swarm_n_particles": 100}
     solver = FW(y, forward_op, lambda_, x_dim, bounds=np.array([[0], [1]]), verbose=False, show_progress=False, options=options)
@@ -110,13 +114,16 @@ if __name__ == '__main__':
     print("Correction iterations: ", solver._mstate["correction_iterations"])
     print("Sliding Time: ", solver._mstate["sliding_durations"])
     print("Iterations: ", solver._astate["idx"])
-    solver.plot(x0, a0)
-    solver.plot_solution(x0, a0, merged=True)
+    # solver.plot(x0, a0)
+    # solver.plot_solution(x0, a0, merged=True)
 
-    # x, a = solver.solution()
-    print(x)
-    x, a = solver.merged_solution()
-    print(x)
+    x, a = solver.solution()
+    # x, a = solver.merged_solution()
     x = np.sort(x[a > 0])
-    if len(x) == len(x0):
-        print("Distance: ", np.sum(np.abs(x - x0)))
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.001).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.005).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.01).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.02).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.05).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.1).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 1).cost)
