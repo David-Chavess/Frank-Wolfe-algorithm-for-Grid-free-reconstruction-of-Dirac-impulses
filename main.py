@@ -2,9 +2,9 @@ from time import time
 
 import numpy as np
 
+from src.metrics.flat_norm import flat_norm
 from src.operators.fourier_operator import FourierOperator
 from src.solvers.fw import FW
-from src.metrics.flat_norm import flat_norm
 
 
 def add_snr(y0, snr, N):
@@ -80,7 +80,7 @@ if __name__ == '__main__':
     lambda_ = 0.1 * lambda_max
 
     x_dim = 1
-    options = {"merge": False, "add_one": True, "sliding": True, "max_iter": 30, "dual_certificate_tol": 1e-2, "swarm_n_particles": 100}
+    options = {"merge": False, "add_one": True, "swarm": False, "sliding": True, "swarm_n_particles": 100, "max_iter": 30, "dual_certificate_tol": 1e-2}
     solver = FW(y, forward_op, lambda_, x_dim, bounds=np.array([[0], [1]]), verbose=False, show_progress=False, options=options)
     t1 = time()
     solver.fit()
@@ -90,12 +90,11 @@ if __name__ == '__main__':
     print("Correction iterations: ", solver._mstate["correction_iterations"])
     print("Sliding Time: ", solver._mstate["sliding_durations"])
     print("Iterations: ", solver._astate["idx"])
-    # solver.plot(x0, a0)
+    solver.plot(x0, a0)
     # solver.plot_solution(x0, a0, merged=False)
 
     x, a = solver.solution()
     # x, a = solver.merged_solution()
-    x = np.sort(x[a > 0])
     print("Distance: ", flat_norm(x0, x, a0, a, 0.001).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.005).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.01).cost)
@@ -104,7 +103,7 @@ if __name__ == '__main__':
     print("Distance: ", flat_norm(x0, x, a0, a, 0.1).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 1).cost)
 
-    options = {"merge": False, "add_one": False, "sliding": False, "max_iter": 30, "dual_certificate_tol": 1e-2, "swarm_n_particles": 100}
+    options = {"merge": False, "add_one": False, "swarm": False, "sliding": False, "swarm_n_particles": 100, "max_iter": 30, "dual_certificate_tol": 1e-2}
     solver = FW(y, forward_op, lambda_, x_dim, bounds=np.array([[0], [1]]), verbose=False, show_progress=False, options=options)
     t1 = time()
     solver.fit()
@@ -114,12 +113,24 @@ if __name__ == '__main__':
     print("Correction iterations: ", solver._mstate["correction_iterations"])
     print("Sliding Time: ", solver._mstate["sliding_durations"])
     print("Iterations: ", solver._astate["idx"])
-    # solver.plot(x0, a0)
+    solver.plot(x0, a0)
     # solver.plot_solution(x0, a0, merged=True)
 
     x, a = solver.solution()
     # x, a = solver.merged_solution()
-    x = np.sort(x[a > 0])
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.001).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.005).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.01).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.02).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.05).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 0.1).cost)
+    print("Distance: ", flat_norm(x0, x, a0, a, 1).cost)
+
+    # solver.plot_solution(x0, a0, merged=True)
+    # solver.plot_solution(x0, a0, merged=False)
+
+    x, a = solver.merged_solution()
+    print("Merged")
     print("Distance: ", flat_norm(x0, x, a0, a, 0.001).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.005).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.01).cost)

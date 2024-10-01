@@ -15,7 +15,8 @@ from pyxu.opt.solver.pgd import PGD
 from pyxu.util import as_real_op, view_as_real, view_as_complex
 from scipy.optimize import linprog, minimize
 
-from src.operators.fourier_operator import DualCertificate, DiffFourierOperator
+from src.operators.fourier_operator import DiffFourierOperator
+from src.operators.dual_certificate import DualCertificate
 from src.operators.my_lin_op import MyLinOp
 
 
@@ -43,6 +44,7 @@ class FW(pxs.Solver):
             options = {}
 
         # Initialize the swarm parameters
+        self.swarm = options.get("swarm", False)
         self.swarm_iterations = options.get("swarm_iterations", 10)
         self.swarm_n_particles = options.get("swarm_n_particles", 100)
         self.swarm_w = options.get("swarm_w", 0.25)
@@ -63,6 +65,9 @@ class FW(pxs.Solver):
 
         self.min_iter = options.get("min_iter", 2)
         self.dual_certificate_tol = options.get("dual_certificate_tol", 1e-2)
+
+        self.learning_rate = options.get("learning_rate", 0.0001)
+        self.grad_max_iterations = options.get("grad_iterations", 1000)
 
     def m_init(self, **kwargs):
         mst = self._mstate
@@ -151,11 +156,41 @@ class FW(pxs.Solver):
             mst['global_best_position'] = mst['best_positions'][global_best_index].copy()
             mst['global_best_cost'] = mst['best_costs'][global_best_index]
 
-            # if self.verbose:
-            #     print(f"Iteration {i + 1}: Best Cost = {mst['global_best_cost'].item()}")
-
         if self.verbose:
             print(f"Global Best Position: {mst['global_best_position'].ravel()}")
+
+    def gradient_ascent(self):
+        mst = self._mstate
+
+        # Initialize the particles
+        mst['particles'] = np.random.uniform(low=self.bounds[0], high=self.bounds[1],
+                                             size=(self.swarm_n_particles, self.x_dim))
+
+        old_x = mst['particles'].copy()
+        for i in range(self.grad_max_iterations):
+            grad = self.dual_certificate_grad(mst['particles']).reshape(-1, self.x_dim)
+
+            # Update the particles
+            mst['particles'] += self.learning_rate * grad
+
+            # Enforce the bounds of the search space
+            mst['particles'] = np.clip(mst['particles'], self.bounds[0], self.bounds[1])
+
+            # Check convergence
+            current_x = mst['particles'].copy()
+            if np.allclose(current_x, old_x, atol=1e-5) or np.linalg.norm(current_x - old_x) < 1e-5:
+                break
+            old_x = current_x
+
+        mst['best_positions'] = np.unique(mst['particles'].round(decimals=5), axis=0)
+        mst['best_costs'] = self.dual_certificate(mst['best_positions'])
+
+        global_best_index = np.argmax(mst['best_costs'])
+        mst['global_best_position'] = mst['best_positions'][global_best_index].copy()
+        mst['global_best_cost'] = mst['best_costs'][global_best_index]
+
+        if self.verbose:
+            print(f"Best Position: {mst['best_positions'].ravel()}")
 
     def correction_step(self) -> pxt.NDArray:
         r"""
@@ -216,21 +251,19 @@ class FW(pxs.Solver):
 
     def data_fid(self, support_indices: pxt.NDArray) -> pxo.DiffFunc:
         """Get the data fidelity term"""
-        forward_op = self.get_forward_operator(support_indices)
+        forward_op = self.forward_op.get_new_operator(support_indices)
         y = self.y
         data_fid = 0.5 * pxop.SquaredL2Norm(dim_shape=y.shape).argshift(-y) * forward_op
         data_fid.diff_lipschitz = max(len(y) * len(forward_op.x) / 4, 2 * len(y))
         return data_fid
 
-    def get_forward_operator(self, x: pxt.NDArray) -> MyLinOp:
-        """Get new updated forward operator with the new positions of the atoms"""
-        self.forward_op = self.forward_op.get_new_operator(x)
-        return self.forward_op
-
     def m_step(self):
         # Find a list of dirac positions candidates
         t1 = time()
-        self.swarm_step()
+        if self.swarm:
+            self.swarm_step()
+        else:
+            self.gradient_ascent()
         t2 = time()
 
         mst = self._mstate
@@ -252,7 +285,7 @@ class FW(pxs.Solver):
             mst["a_candidates"] = np.append(mst["a"], 0)
         else:
             # Add all particles to the list of candidates
-            mst["x_candidates"] = np.concatenate([mst["x"].reshape(-1, 1), mst["best_positions"]])
+            mst["x_candidates"] = np.concatenate([mst["x"].reshape(-1, self.x_dim), mst["best_positions"]])
             mst["a_candidates"] = np.concatenate([mst["a"], np.zeros_like(mst["best_costs"])])
 
         t1 = time()
@@ -408,8 +441,13 @@ class FW(pxs.Solver):
 
     def dual_certificate(self, t: pxt.NDArray) -> pxt.NDArray:
         mst = self._mstate
-        dual_cert = DualCertificate(mst["x"], mst["a"], self.y, self.get_forward_operator(mst["x"]), self.lambda_)
+        dual_cert = DualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_)
         return dual_cert.apply(t)
+
+    def dual_certificate_grad(self, t: pxt.NDArray) -> pxt.NDArray:
+        mst = self._mstate
+        dual_cert = DualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_)
+        return dual_cert.grad(t)
 
     def plot(self, x, a):
         """ Plot the results of the solver and each steps of the algorithm."""
@@ -427,23 +465,23 @@ class FW(pxs.Solver):
             fig, axs = plt.subplots(n_iter, 2, figsize=(10, 5 * n_iter))
 
         # Initial dual certificate
-        dual_cert = DualCertificate(np.array([]), np.array([]), self.y, self.get_forward_operator(np.array([])),
+        dual_cert = DualCertificate(np.array([]), np.array([]), self.y, self.forward_op,
                                     self.lambda_)
         eta = dual_cert(grid)
 
         for i in range(n_iter):
-            # Normalize the dual certificate
             idx = i * 2 if need_extra_plot else i
 
             s1 = axs[i, 0].stem(mst["iter_candidates"][i], np.ones_like(mst["iter_candidates"][i]),
                                 linefmt='k.--', markerfmt='k.', basefmt=" ", label='Candidates')
             ax2 = axs[i, 0].twinx()
             ax2.plot(grid, eta, label='Dual Certificate', color='tab:blue')
+            # ax2.plot(grid, dual_cert.grad(grid) / 200, label='Grad', color='tab:green')
+            # ax2.hlines(0, self.bounds[0], self.bounds[1], color='tab:red', linestyles='dashed')
             axs[i, 0].set_title(f"Candidates - Iteration {i + 1}")
             axs[i, 0].grid(True)
 
-            dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y,
-                                        self.get_forward_operator(mst["iter_x"][idx]), self.lambda_)
+            dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op, self.lambda_)
             eta = dual_cert(grid)
             ax2 = axs[i, 1].twinx()
             l1, = ax2.plot(grid, eta, label='Dual Certificate', color='tab:blue')
@@ -458,8 +496,8 @@ class FW(pxs.Solver):
             if need_extra_plot:
                 idx += 1
 
-                dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y,
-                                            self.get_forward_operator(mst["iter_x"][idx]), self.lambda_)
+                dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op,
+                                            self.lambda_)
                 eta = dual_cert(grid)
                 ax2 = axs[i, 2].twinx()
                 ax2.plot(grid, eta, label='Dual Certificate', color='tab:blue')
@@ -484,8 +522,7 @@ class FW(pxs.Solver):
 
             # Update the dual certificate
             idx = i * 2 if need_extra_plot else i
-            dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y,
-                                        self.get_forward_operator(mst["iter_x"][idx]), self.lambda_)
+            dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op, self.lambda_)
             eta = dual_cert(grid)
 
             # Legend
@@ -530,7 +567,6 @@ class StopDualCertificate(StoppingCriterion):
         if len(x) == 0:
             return False
 
-        self.forward_operator = self.forward_operator.get_new_operator(x)
         dual_cert = DualCertificate(x, a, self.y, self.forward_operator, self.lambda_)
 
         self._val = np.max(np.abs(dual_cert.apply(self.grid))).item()

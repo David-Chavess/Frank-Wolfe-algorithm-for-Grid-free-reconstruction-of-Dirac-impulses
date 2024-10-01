@@ -2,7 +2,6 @@ from typing import Callable
 
 import numpy as np
 import pyxu.info.ptype as pxt
-from pyxu.abc.operator import Func
 from pyxu.util import view_as_real, view_as_complex
 
 from src.operators.my_lin_op import MyLinOp
@@ -30,6 +29,10 @@ class FourierOperator(MyLinOp):
     def adjoint_function(self, y: pxt.NDArray) -> Callable:
         y = view_as_complex(y)
         return lambda t: np.real(np.exp(2j * np.pi * np.outer(self.w, t)).T @ y)
+
+    def adjoint_function_grad(self, y: pxt.NDArray) -> Callable:
+        y = view_as_complex(y)
+        return lambda t: np.real(2j * np.pi * self.w.T * np.exp(2j * np.pi * np.outer(self.w, t)).T @ y)
 
     def get_new_operator(self, x: pxt.NDArray) -> MyLinOp:
         return FourierOperator(x, self.w, self.n_measurements)
@@ -81,33 +84,3 @@ class DiffFourierOperator(MyLinOp):
     @staticmethod
     def get_DiffFourierOperator(op: FourierOperator) -> MyLinOp:
         return DiffFourierOperator(op.w, op.n_measurements, 2*len(op.x))
-
-
-class DualCertificate(Func):
-
-    def __init__(self,
-                 xk: pxt.NDArray,
-                 ak: pxt.NDArray,
-                 measurements: pxt.NDArray,
-                 operator: MyLinOp,
-                 lambda_: float,
-                 x_dim: int = 1):
-        self.xk = xk
-        self.ak = ak
-        self.op = operator
-        self.lambda_ = lambda_
-
-        phi = operator
-        phiS = phi.adjoint_function(measurements - phi(ak))
-
-        self.fun = lambda t: np.abs(phiS(t) / self.lambda_)
-        super().__init__(x_dim, 1)
-
-    def apply(self, t: pxt.NDArray) -> pxt.NDArray:
-        return self.fun(t)
-
-    def estimate_lipschitz(self, **kwargs) -> pxt.Real:
-        pass
-
-    def _meta(self):
-        pass

@@ -2,6 +2,7 @@ import numpy as np
 from pyxu.util import view_as_complex
 from scipy.optimize import minimize
 
+from src.operators.dual_certificate import DualCertificate
 from src.operators.fourier_operator import FourierOperator, DiffFourierOperator
 
 
@@ -18,7 +19,7 @@ if __name__ == '__main__':
     np.random.seed(1)
 
     x0 = np.array([0.1, 0.25, 0.5, 0.7, 0.9])
-    a0 = np.array([1, 1.5, 0.5, 2, 5])
+    a0 = np.array([1, 1.5, 0.5, -2, 5])
 
     N = 100
     bounds = np.array([-10, 10])
@@ -100,3 +101,18 @@ if __name__ == '__main__':
     x = out.x[:len(x0)]
     a = out.x[len(x0):]
     print("Distance: ", np.sum(np.abs(x - x0)))
+
+    dual_certificates = DualCertificate(x0, a0, y, forward_op, lambda_)
+
+    def finite_grad(x):
+        finite_grad = np.zeros_like(x)
+        eps = 1e-10
+        for i, v in enumerate(x):
+            finite_grad[i] = (dual_certificates(v + eps) - dual_certificates(v)) / eps
+        return finite_grad
+
+    assert np.allclose(dual_certificates.grad(x0), finite_grad(x0), atol=1e-2)
+    x0 = np.array([0.1])
+    assert np.allclose(dual_certificates.grad(x0), finite_grad(x0), atol=1e-2)
+    x0 = np.array([0.55555, 0.001, 0.76346, 0., 1.])
+    assert np.allclose(dual_certificates.grad(x0), finite_grad(x0), atol=1e-2)
