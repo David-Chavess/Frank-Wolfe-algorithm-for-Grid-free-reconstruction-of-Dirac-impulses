@@ -80,7 +80,7 @@ if __name__ == '__main__':
     lambda_ = 0.1 * lambda_max
 
     x_dim = 1
-    options = {"merge": False, "add_one": True, "swarm": False, "sliding": True, "swarm_n_particles": 100, "max_iter": 30, "dual_certificate_tol": 1e-2}
+    options = {"merge": False, "add_one": False, "swarm": True, "sliding": False, "swarm_n_particles": 100, "max_iter": 30, "dual_certificate_tol": 1e-2}
     solver = FW(y, forward_op, lambda_, x_dim, bounds=np.array([[0], [1]]), verbose=False, show_progress=False, options=options)
     t1 = time()
     solver.fit()

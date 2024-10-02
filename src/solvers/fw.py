@@ -185,6 +185,9 @@ class FW(pxs.Solver):
         mst['best_positions'] = np.unique(mst['particles'].round(decimals=5), axis=0)
         mst['best_costs'] = self.dual_certificate(mst['best_positions'])
 
+        mst['best_positions'] = mst['best_positions'][mst['best_costs'] > 1]
+        mst['best_costs'] = mst['best_costs'][mst['best_costs'] > 1]
+
         global_best_index = np.argmax(mst['best_costs'])
         mst['global_best_position'] = mst['best_positions'][global_best_index].copy()
         mst['global_best_cost'] = mst['best_costs'][global_best_index]
@@ -220,6 +223,7 @@ class FW(pxs.Solver):
         a0 = mst["a_candidates"]
         dim = a0.shape[0]
 
+        # Add a small value to avoid problem in the stopping criterion
         if self._astate["idx"] == 1:
             a0[0] = 1e-5
 
@@ -254,7 +258,13 @@ class FW(pxs.Solver):
         forward_op = self.forward_op.get_new_operator(support_indices)
         y = self.y
         data_fid = 0.5 * pxop.SquaredL2Norm(dim_shape=y.shape).argshift(-y) * forward_op
-        data_fid.diff_lipschitz = max(len(y) * len(forward_op.x) / 4, 2 * len(y))
+
+        # Compute the Lipschitz constant
+        x = np.random.normal(size=forward_op.dim_shape)
+        for i in range(10):
+            x = forward_op.adjoint(forward_op(x))
+            x = x / np.linalg.norm(x)
+        data_fid.diff_lipschitz = np.linalg.norm(forward_op.adjoint(forward_op(x))) / np.linalg.norm(x)
         return data_fid
 
     def m_step(self):
