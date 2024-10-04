@@ -35,6 +35,9 @@ if __name__ == '__main__':
     # a0 = np.array([1, 15, 0.5, -3, 5])
     a0 = np.array([1, 1, 1, 1, 1])
 
+    # x0 = np.random.uniform(-100, 100, 50)
+    # a0 = np.random.uniform(-1, 1, 50)
+
     # x0 = np.array([0.1, 0.25, 0.5, 0.51, 0.7, 0.75, 0.9, 0.92])
     # a0 = np.array([1, 1, 1, 1, 1, 1, 1, 1])
     # a0 = np.array([-1, 0.5, 1, 1, 1, 3, 1, 1])
@@ -80,7 +83,7 @@ if __name__ == '__main__':
     lambda_ = 0.1 * lambda_max
 
     x_dim = 1
-    options = {"merge": False, "add_one": False, "swarm": True, "sliding": False, "swarm_n_particles": 100, "max_iter": 30, "dual_certificate_tol": 1e-2}
+    options = {"merge": False, "add_one": True, "swarm": True, "sliding": True, "swarm_n_particles": 100, "max_iter": 10, "dual_certificate_tol": 1e-2}
     solver = FW(y, forward_op, lambda_, x_dim, bounds=np.array([[0], [1]]), verbose=False, show_progress=False, options=options)
     t1 = time()
     solver.fit()
@@ -90,20 +93,18 @@ if __name__ == '__main__':
     print("Correction iterations: ", solver._mstate["correction_iterations"])
     print("Sliding Time: ", solver._mstate["sliding_durations"])
     print("Iterations: ", solver._astate["idx"])
-    solver.plot(x0, a0)
+    print("Dual certificate: ", solver._mstate["dual_certificate"])
+    # solver.plot(x0, a0)
     # solver.plot_solution(x0, a0, merged=False)
 
     x, a = solver.solution()
     # x, a = solver.merged_solution()
-    print("Distance: ", flat_norm(x0, x, a0, a, 0.001).cost)
-    print("Distance: ", flat_norm(x0, x, a0, a, 0.005).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.01).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.02).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.05).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.1).cost)
-    print("Distance: ", flat_norm(x0, x, a0, a, 1).cost)
 
-    options = {"merge": False, "add_one": False, "swarm": False, "sliding": False, "swarm_n_particles": 100, "max_iter": 30, "dual_certificate_tol": 1e-2}
+    options = {"merge": False, "add_one": False, "swarm": False, "sliding": False, "swarm_n_particles": 100, "max_iter": 10, "dual_certificate_tol": 1e-2}
     solver = FW(y, forward_op, lambda_, x_dim, bounds=np.array([[0], [1]]), verbose=False, show_progress=False, options=options)
     t1 = time()
     solver.fit()
@@ -113,28 +114,19 @@ if __name__ == '__main__':
     print("Correction iterations: ", solver._mstate["correction_iterations"])
     print("Sliding Time: ", solver._mstate["sliding_durations"])
     print("Iterations: ", solver._astate["idx"])
+    print("Dual certificate: ", solver._mstate["dual_certificate"])
     solver.plot(x0, a0)
-    # solver.plot_solution(x0, a0, merged=True)
+    # solver.plot_solution(x0, a0, merged=False)
 
     x, a = solver.solution()
-    # x, a = solver.merged_solution()
-    print("Distance: ", flat_norm(x0, x, a0, a, 0.001).cost)
-    print("Distance: ", flat_norm(x0, x, a0, a, 0.005).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.01).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.02).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.05).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.1).cost)
-    print("Distance: ", flat_norm(x0, x, a0, a, 1).cost)
-
-    # solver.plot_solution(x0, a0, merged=True)
-    # solver.plot_solution(x0, a0, merged=False)
 
     x, a = solver.merged_solution()
     print("Merged")
-    print("Distance: ", flat_norm(x0, x, a0, a, 0.001).cost)
-    print("Distance: ", flat_norm(x0, x, a0, a, 0.005).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.01).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.02).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.05).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.1).cost)
-    print("Distance: ", flat_norm(x0, x, a0, a, 1).cost)

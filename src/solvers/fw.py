@@ -1,4 +1,3 @@
-import datetime as dt
 from collections import abc as cabc
 from time import time
 from typing import Dict, Any
@@ -15,8 +14,8 @@ from pyxu.opt.solver.pgd import PGD
 from pyxu.util import as_real_op, view_as_real, view_as_complex
 from scipy.optimize import linprog, minimize
 
-from src.operators.fourier_operator import DiffFourierOperator
 from src.operators.dual_certificate import DualCertificate
+from src.operators.fourier_operator import DiffFourierOperator
 from src.operators.my_lin_op import MyLinOp
 
 
@@ -65,9 +64,10 @@ class FW(pxs.Solver):
 
         self.min_iter = options.get("min_iter", 2)
         self.dual_certificate_tol = options.get("dual_certificate_tol", 1e-2)
+        self._init_correction_prec = options.get("init_correction_prec", 1e-2)
+        self._final_correction_prec = options.get("final_correction_prec", 1e-4)
 
-        self.learning_rate = options.get("learning_rate", 0.0001)
-        self.grad_max_iterations = options.get("grad_iterations", 1000)
+        self.grad_max_iterations = options.get("grad_iterations", 100)
 
     def m_init(self, **kwargs):
         mst = self._mstate
@@ -82,6 +82,8 @@ class FW(pxs.Solver):
         mst["correction_durations"] = []
 
         mst["sliding_durations"] = []
+
+        mst["dual_certificate"] = []
 
         # Plot
         mst["iter_candidates"] = []
@@ -159,6 +161,11 @@ class FW(pxs.Solver):
         if self.verbose:
             print(f"Global Best Position: {mst['global_best_position'].ravel()}")
 
+        filter = mst['best_costs'] > 1
+        if np.any(filter):
+            mst['best_positions'] = mst['best_positions'][filter]
+            mst['best_costs'] = mst['best_costs'][filter]
+
     def gradient_ascent(self):
         mst = self._mstate
 
@@ -166,27 +173,36 @@ class FW(pxs.Solver):
         mst['particles'] = np.random.uniform(low=self.bounds[0], high=self.bounds[1],
                                              size=(self.swarm_n_particles, self.x_dim))
 
+        x = mst['particles'].copy()
+        # Compute learning rate
+        for i in range(10):
+            x = self.dual_certificate_grad(x)
+            x = x / np.linalg.norm(x)
+        learning_rate = 0.1 / np.linalg.norm(self.dual_certificate_grad(x))
+
         old_x = mst['particles'].copy()
         for i in range(self.grad_max_iterations):
             grad = self.dual_certificate_grad(mst['particles']).reshape(-1, self.x_dim)
 
             # Update the particles
-            mst['particles'] += self.learning_rate * grad
+            mst['particles'] += learning_rate * grad
 
             # Enforce the bounds of the search space
             mst['particles'] = np.clip(mst['particles'], self.bounds[0], self.bounds[1])
 
             # Check convergence
             current_x = mst['particles'].copy()
-            if np.allclose(current_x, old_x, atol=1e-5) or np.linalg.norm(current_x - old_x) < 1e-5:
+            if np.allclose(current_x, old_x, atol=1e-4) or np.linalg.norm(current_x - old_x) < 1e-4:
                 break
             old_x = current_x
 
         mst['best_positions'] = np.unique(mst['particles'].round(decimals=5), axis=0)
         mst['best_costs'] = self.dual_certificate(mst['best_positions'])
 
-        mst['best_positions'] = mst['best_positions'][mst['best_costs'] > 1]
-        mst['best_costs'] = mst['best_costs'][mst['best_costs'] > 1]
+        filter = mst['best_costs'] > 1
+        if np.any(filter):
+            mst['best_positions'] = mst['best_positions'][filter]
+            mst['best_costs'] = mst['best_costs'][filter]
 
         global_best_index = np.argmax(mst['best_costs'])
         mst['global_best_position'] = mst['best_positions'][global_best_index].copy()
@@ -231,9 +247,8 @@ class FW(pxs.Solver):
         apgd = PGD(data_fid, self.lambda_ * penalty, show_progress=False)
 
         min_iter = pxos.MaxIter(n=10)
-        max_duration = pxos.MaxDuration(t=dt.timedelta(seconds=60))
 
-        stop = (min_iter & correction_stop_crit(1e-4)) | max_duration
+        stop = (min_iter & correction_stop_crit(1e-4))
 
         apgd.fit(
             x0=a0,
@@ -580,6 +595,7 @@ class StopDualCertificate(StoppingCriterion):
         dual_cert = DualCertificate(x, a, self.y, self.forward_operator, self.lambda_)
 
         self._val = np.max(np.abs(dual_cert.apply(self.grid))).item()
+        state["dual_certificate"].append(self._val)
         return np.isclose(self._val, 1, atol=self.dual_certificate_tol).item()
 
     def info(self) -> cabc.Mapping[str, float]:
