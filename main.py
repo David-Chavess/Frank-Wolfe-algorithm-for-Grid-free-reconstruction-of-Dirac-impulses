@@ -35,12 +35,16 @@ if __name__ == '__main__':
     # a0 = np.array([1, 15, 0.5, -3, 5])
     a0 = np.array([1, 1, 1, 1, 1])
 
-    # x0 = np.random.uniform(-100, 100, 50)
-    # a0 = np.random.uniform(-1, 1, 50)
+    # x0 = np.random.uniform(-0.95, 0.95, 20)
+    # a0 = np.random.uniform(0.5, 3, 20)
 
     # x0 = np.array([0.1, 0.25, 0.5, 0.51, 0.7, 0.75, 0.9, 0.92])
     # a0 = np.array([1, 1, 1, 1, 1, 1, 1, 1])
     # a0 = np.array([-1, 0.5, 1, 1, 1, 3, 1, 1])
+
+    # x0 = np.array([-0.89, -0.7, -0.68, -0.55, -0.46, - 0.24, -0.2, -0.05, 0.1, 0.25, 0.5, 0.51, 0.7, 0.75, 0.9, 0.92])
+    # a0 = np.array([3, 4.5, -1.5, -3, 4, 3, 1, 2.5, -1, 0.5, 1, 1, 1, 3, 1, 1])
+    # a0 = np.abs(a0)
 
     # N = 100
     # grid = np.linspace(-1, 1, N)
@@ -66,7 +70,7 @@ if __name__ == '__main__':
     # exit(0)
 
     N = 100
-    bounds = np.array([-10, 10])
+    bounds = np.array([-100, 100])
     forward_op = FourierOperator.get_RandomFourierOperator(x0, N, bounds)
 
     # Get measurements
@@ -83,19 +87,23 @@ if __name__ == '__main__':
     lambda_ = 0.1 * lambda_max
 
     x_dim = 1
-    options = {"merge": False, "add_one": True, "swarm": True, "sliding": True, "swarm_n_particles": 100, "max_iter": 10, "dual_certificate_tol": 1e-2}
-    solver = FW(y, forward_op, lambda_, x_dim, bounds=np.array([[0], [1]]), verbose=False, show_progress=False, options=options)
+
+    bounds = np.array([[-1], [1]])
+
+    options = {"initialization": "smoothing", "add_one": True, "swarm": True, "sliding": True,
+               "swarm_n_particles": 100, "max_iter": 20, "dual_certificate_tol": 1e-2, "smooth_sigma": 50, "smooth_grid_size": 10000}
+    solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False, options=options)
     t1 = time()
     solver.fit()
     print("Time: ", time() - t1)
-    print("Swarm Time: ", solver._mstate["swarm_durations"])
+    print("Candidates search Time: ", solver._mstate["candidates_search_durations"])
     print("Correction Time: ", solver._mstate["correction_durations"])
     print("Correction iterations: ", solver._mstate["correction_iterations"])
     print("Sliding Time: ", solver._mstate["sliding_durations"])
     print("Iterations: ", solver._astate["idx"])
     print("Dual certificate: ", solver._mstate["dual_certificate"])
-    # solver.plot(x0, a0)
-    # solver.plot_solution(x0, a0, merged=False)
+    solver.plot(x0, a0)
+    solver.plot_solution(x0, a0, merged=False)
 
     x, a = solver.solution()
     # x, a = solver.merged_solution()
@@ -104,19 +112,21 @@ if __name__ == '__main__':
     print("Distance: ", flat_norm(x0, x, a0, a, 0.05).cost)
     print("Distance: ", flat_norm(x0, x, a0, a, 0.1).cost)
 
-    options = {"merge": False, "add_one": False, "swarm": False, "sliding": False, "swarm_n_particles": 100, "max_iter": 10, "dual_certificate_tol": 1e-2}
-    solver = FW(y, forward_op, lambda_, x_dim, bounds=np.array([[0], [1]]), verbose=False, show_progress=False, options=options)
+    options = {"initialization": "smoothing", "add_one": False, "swarm": True, "sliding": False,
+               "swarm_n_particles": 100, "max_iter": 20, "dual_certificate_tol": 1e-2, "smooth_sigma": 50, "smooth_grid_size": 10000}
+    solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False, options=options)
     t1 = time()
     solver.fit()
     print("Time: ", time() - t1)
-    print("Swarm Time: ", solver._mstate["swarm_durations"])
+    print("Candidates search Time: ", solver._mstate["candidates_search_durations"])
     print("Correction Time: ", solver._mstate["correction_durations"])
     print("Correction iterations: ", solver._mstate["correction_iterations"])
     print("Sliding Time: ", solver._mstate["sliding_durations"])
     print("Iterations: ", solver._astate["idx"])
     print("Dual certificate: ", solver._mstate["dual_certificate"])
     solver.plot(x0, a0)
-    # solver.plot_solution(x0, a0, merged=False)
+    solver.plot_solution(x0, a0, merged=False)
+    solver.plot_solution(x0, a0, merged=True)
 
     x, a = solver.solution()
     print("Distance: ", flat_norm(x0, x, a0, a, 0.01).cost)

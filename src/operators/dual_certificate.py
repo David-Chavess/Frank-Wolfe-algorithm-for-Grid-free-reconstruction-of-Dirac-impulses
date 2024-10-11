@@ -1,6 +1,8 @@
 import numpy as np
 from pyxu.abc import Func
 from pyxu.info import ptype as pxt
+from scipy.ndimage import gaussian_filter1d
+from scipy.signal import find_peaks
 
 from src.operators.my_lin_op import MyLinOp
 
@@ -44,3 +46,26 @@ class DualCertificate(Func):
 
     def _meta(self):
         pass
+
+
+class SmoothDualCertificate(DualCertificate):
+
+    def __init__(self,
+                 xk: pxt.NDArray,
+                 ak: pxt.NDArray,
+                 measurements: pxt.NDArray,
+                 operator: MyLinOp,
+                 lambda_: float,
+                 sigma: float,
+                 grid: pxt.NDArray,
+                 x_dim: int = 1):
+        super().__init__(xk, ak, measurements, operator, lambda_, x_dim)
+
+        self.sigma = sigma
+        self.grid = grid
+        z = self.fun(self.grid)
+        self.z_smooth = gaussian_filter1d(z, sigma)
+
+    def get_peaks(self):
+        peaks = find_peaks(self.z_smooth)[0]
+        return self.grid[peaks]

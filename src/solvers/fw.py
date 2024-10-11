@@ -14,7 +14,7 @@ from pyxu.opt.solver.pgd import PGD
 from pyxu.util import as_real_op, view_as_real, view_as_complex
 from scipy.optimize import linprog, minimize
 
-from src.operators.dual_certificate import DualCertificate
+from src.operators.dual_certificate import DualCertificate, SmoothDualCertificate
 from src.operators.fourier_operator import DiffFourierOperator
 from src.operators.my_lin_op import MyLinOp
 
@@ -55,6 +55,13 @@ class FW(pxs.Solver):
 
         self.verbose = verbose
 
+        self.initialization = options.get("initialization", "random")
+        if self.initialization not in ["random", "grid", "smoothing"]:
+            raise ValueError(f"Invalid initialization method: {self.initialization}")
+
+        self.smooth_sigma = options.get("smooth_sigma", 5)
+        self.smooth_grid_size = options.get("smooth_grid_size", 1000)
+
         self.merge = options.get("merge", False)
         self.add_one = options.get("add_one", False)
         self.sliding = options.get("sliding", False)
@@ -64,10 +71,9 @@ class FW(pxs.Solver):
 
         self.min_iter = options.get("min_iter", 2)
         self.dual_certificate_tol = options.get("dual_certificate_tol", 1e-2)
-        self._init_correction_prec = options.get("init_correction_prec", 1e-2)
-        self._final_correction_prec = options.get("final_correction_prec", 1e-4)
 
         self.grad_max_iterations = options.get("grad_iterations", 100)
+        self.grad_tol = options.get("grad_tol", 1e-4)
 
     def m_init(self, **kwargs):
         mst = self._mstate
@@ -76,7 +82,7 @@ class FW(pxs.Solver):
         mst["x"] = np.array([], dtype=np.float64)
         mst["a"] = np.array([], dtype=np.float64)
 
-        mst["swarm_durations"] = []
+        mst["candidates_search_durations"] = []
 
         mst["correction_iterations"] = []
         mst["correction_durations"] = []
@@ -89,6 +95,8 @@ class FW(pxs.Solver):
         mst["iter_candidates"] = []
         mst["iter_x"] = []
         mst["iter_a"] = []
+        mst["smooth_dual_certificate"] = []
+        mst["smooth_peaks"] = []
 
     def swarm_init(self):
         mst = self._mstate
@@ -161,24 +169,31 @@ class FW(pxs.Solver):
         if self.verbose:
             print(f"Global Best Position: {mst['global_best_position'].ravel()}")
 
-        filter = mst['best_costs'] > 1
-        if np.any(filter):
-            mst['best_positions'] = mst['best_positions'][filter]
-            mst['best_costs'] = mst['best_costs'][filter]
-
     def gradient_ascent(self):
         mst = self._mstate
 
         # Initialize the particles
-        mst['particles'] = np.random.uniform(low=self.bounds[0], high=self.bounds[1],
-                                             size=(self.swarm_n_particles, self.x_dim))
+        if self.initialization == "random":
+            mst['particles'] = np.random.uniform(low=self.bounds[0], high=self.bounds[1],
+                                                 size=(self.swarm_n_particles, self.x_dim))
+        elif self.initialization == "grid":
+            n = int(2 * np.max(np.abs(self.forward_op.w))) + 1
+            n *= max(int(self.bounds[1] - self.bounds[0]), 1)
+            mst['particles'] = np.linspace(self.bounds[0], self.bounds[1], n).reshape(-1, self.x_dim)
+        elif self.initialization == "smoothing":
+            sigma = self.smooth_sigma
+            grid = np.linspace(self.bounds[0], self.bounds[1], self.smooth_grid_size)
+            smooth_dual_cert = SmoothDualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_, sigma, grid)
+            mst['particles'] = smooth_dual_cert.get_peaks().reshape(-1, self.x_dim)
+            mst["smooth_dual_certificate"].append((grid, smooth_dual_cert.z_smooth))
+            mst["smooth_peaks"].append(mst['particles'])
 
-        x = mst['particles'].copy()
+        x = np.random.uniform(low=self.bounds[0], high=self.bounds[1], size=(100, self.x_dim))
         # Compute learning rate
         for i in range(10):
             x = self.dual_certificate_grad(x)
             x = x / np.linalg.norm(x)
-        learning_rate = 0.1 / np.linalg.norm(self.dual_certificate_grad(x))
+        learning_rate = 1 / (2 * np.linalg.norm(self.dual_certificate_grad(x)) * np.max(np.abs(self.forward_op.w)))
 
         old_x = mst['particles'].copy()
         for i in range(self.grad_max_iterations):
@@ -192,17 +207,17 @@ class FW(pxs.Solver):
 
             # Check convergence
             current_x = mst['particles'].copy()
-            if np.allclose(current_x, old_x, atol=1e-4) or np.linalg.norm(current_x - old_x) < 1e-4:
+            if np.allclose(current_x, old_x, atol=self.grad_tol) or np.linalg.norm(current_x - old_x) < self.grad_tol:
                 break
             old_x = current_x
 
-        mst['best_positions'] = np.unique(mst['particles'].round(decimals=5), axis=0)
-        mst['best_costs'] = self.dual_certificate(mst['best_positions'])
+        if self.initialization == "smoothing":
+            mst['best_positions'] = mst['particles']
+        else:
+            # Need to remove duplicates positions
+            mst['best_positions'] = np.unique(mst['particles'].round(decimals=5), axis=0)
 
-        filter = mst['best_costs'] > 1
-        if np.any(filter):
-            mst['best_positions'] = mst['best_positions'][filter]
-            mst['best_costs'] = mst['best_costs'][filter]
+        mst['best_costs'] = self.dual_certificate(mst['best_positions'])
 
         global_best_index = np.argmax(mst['best_costs'])
         mst['global_best_position'] = mst['best_positions'][global_best_index].copy()
@@ -292,7 +307,13 @@ class FW(pxs.Solver):
         t2 = time()
 
         mst = self._mstate
-        mst["swarm_durations"].append(t2 - t1)
+        mst["candidates_search_durations"].append(t2 - t1)
+
+        # filter = mst['best_costs'] > 1
+        # filter = mst['best_costs'] > mst['global_best_cost'] * 0.75
+        # if np.any(filter):
+        #     mst['best_positions'] = mst['best_positions'][filter]
+        #     mst['best_costs'] = mst['best_costs'][filter]
 
         if self.verbose:
             print(f"Swarm step duration: {t2 - t1}")
@@ -501,6 +522,11 @@ class FW(pxs.Solver):
                                 linefmt='k.--', markerfmt='k.', basefmt=" ", label='Candidates')
             ax2 = axs[i, 0].twinx()
             ax2.plot(grid, eta, label='Dual Certificate', color='tab:blue')
+
+            if self.initialization == "smoothing" and not self.swarm:
+                g, z_smooth = mst["smooth_dual_certificate"][i]
+                ax2.plot(g, z_smooth, label='Smooth Dual Certificate', color='tab:orange')
+                ax2.plot(mst["smooth_peaks"][i], np.zeros_like(mst["smooth_peaks"][i]), 'x', color='tab:orange')
             # ax2.plot(grid, dual_cert.grad(grid) / 200, label='Grad', color='tab:green')
             # ax2.hlines(0, self.bounds[0], self.bounds[1], color='tab:red', linestyles='dashed')
             axs[i, 0].set_title(f"Candidates - Iteration {i + 1}")
@@ -553,7 +579,7 @@ class FW(pxs.Solver):
             # Legend
             if i == 0:
                 handles = [l1, s1, s2, s3]
-                labels = ['Dual Certificate', 'Candidates', 'Ground Truth', 'Reconstruction']
+                labels = ['Empirical Dual Certificate', 'Candidates', 'Ground Truth', 'Reconstruction']
                 # Place legend outside the plot area
                 fig.legend(handles, labels, loc='upper center', ncol=2)
 
@@ -595,8 +621,16 @@ class StopDualCertificate(StoppingCriterion):
         dual_cert = DualCertificate(x, a, self.y, self.forward_operator, self.lambda_)
 
         self._val = np.max(np.abs(dual_cert.apply(self.grid))).item()
+
+        if len(state["dual_certificate"]) == 0:
+            converged = False
+        else:
+            converged = np.isclose(self._val, state["dual_certificate"][-1], atol=self.dual_certificate_tol).item() \
+                        and self._val < 2
+
         state["dual_certificate"].append(self._val)
-        return np.isclose(self._val, 1, atol=self.dual_certificate_tol).item()
+        close = np.isclose(self._val, 1, atol=self.dual_certificate_tol).item()
+        return close or converged
 
     def info(self) -> cabc.Mapping[str, float]:
         return {"Dual Certificate max value": self._val}
