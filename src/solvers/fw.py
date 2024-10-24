@@ -1,6 +1,6 @@
 from collections import abc as cabc
 from time import time
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,6 +14,7 @@ from pyxu.opt.solver.pgd import PGD
 from pyxu.util import as_real_op, view_as_real, view_as_complex
 from scipy.optimize import linprog, minimize
 
+from src.metrics.flat_norm import flat_norm
 from src.operators.dual_certificate import DualCertificate, SmoothDualCertificate
 from src.operators.fourier_operator import DiffFourierOperator
 from src.operators.my_lin_op import MyLinOp
@@ -51,7 +52,7 @@ class FW(pxs.Solver):
         self.swarm_c2 = options.get("swarm_c2", 0.25)
 
         self.amplitude_threshold = options.get("amplitude_threshold", 0.)
-        self.merge_threshold = options.get("merge_threshold", 0.01)
+        self.merge_threshold = options.get("merge_threshold", 0.005)
 
         self.verbose = verbose
 
@@ -97,6 +98,7 @@ class FW(pxs.Solver):
         mst["iter_a"] = []
         mst["smooth_dual_certificate"] = []
         mst["smooth_peaks"] = []
+        mst["n_candidates_smooth"] = []
 
     def swarm_init(self):
         mst = self._mstate
@@ -178,15 +180,16 @@ class FW(pxs.Solver):
                                                  size=(self.swarm_n_particles, self.x_dim))
         elif self.initialization == "grid":
             n = int(2 * np.max(np.abs(self.forward_op.w))) + 1
-            n *= max(int(self.bounds[1] - self.bounds[0]), 1)
+            n = int(n * max(self.bounds[1] - self.bounds[0], 1))
             mst['particles'] = np.linspace(self.bounds[0], self.bounds[1], n).reshape(-1, self.x_dim)
         elif self.initialization == "smoothing":
             sigma = self.smooth_sigma
             grid = np.linspace(self.bounds[0], self.bounds[1], self.smooth_grid_size)
-            smooth_dual_cert = SmoothDualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_, sigma, grid)
+            smooth_dual_cert = SmoothDualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_, sigma, grid, discrete=True)
             mst['particles'] = smooth_dual_cert.get_peaks().reshape(-1, self.x_dim)
             mst["smooth_dual_certificate"].append((grid, smooth_dual_cert.z_smooth))
             mst["smooth_peaks"].append(mst['particles'])
+            mst["n_candidates_smooth"].append(len(mst['particles']))
 
         x = np.random.uniform(low=self.bounds[0], high=self.bounds[1], size=(100, self.x_dim))
         # Compute learning rate
@@ -309,11 +312,10 @@ class FW(pxs.Solver):
         mst = self._mstate
         mst["candidates_search_durations"].append(t2 - t1)
 
-        # filter = mst['best_costs'] > 1
-        # filter = mst['best_costs'] > mst['global_best_cost'] * 0.75
-        # if np.any(filter):
-        #     mst['best_positions'] = mst['best_positions'][filter]
-        #     mst['best_costs'] = mst['best_costs'][filter]
+        filter = mst['best_costs'] > 0.9
+        if np.any(filter):
+            mst['best_positions'] = mst['best_positions'][filter]
+            mst['best_costs'] = mst['best_costs'][filter]
 
         if self.verbose:
             print(f"Swarm step duration: {t2 - t1}")
@@ -586,17 +588,45 @@ class FW(pxs.Solver):
         plt.show()
         # plt.savefig("results.png")
 
-    def plot_solution(self, x0, a0, merged=False):
-        if merged:
-            x, a = self.merged_solution()
-        else:
-            x, a = self.solution()
+    def plot_solution(self, x0, a0):
+        x, a = self.solution()
 
         plt.figure(figsize=(10, 5))
         plt.stem(x0, a0, linefmt='k.--', markerfmt='ko', basefmt=" ", label='Ground Truth')
         plt.stem(x, a, linefmt='r.--', markerfmt='ro', basefmt=" ", label='Reconstruction')
         plt.title("Ground Truth vs Reconstruction")
         plt.grid(True)
+        plt.legend()
+        plt.show()
+
+    def time_results(self):
+        mst = self._mstate
+        print(f"Candidates Search Time: {sum(mst['candidates_search_durations']):.2f} - {mst['candidates_search_durations']}")
+        print(f"Correction Time: {sum(mst['correction_durations']):.2f} - {mst['correction_durations']}")
+        print("Correction Number of Iterations: ", mst["correction_iterations"])
+        print(f"Sliding Time: {sum(mst['sliding_durations']):.2f} - {mst['sliding_durations']}")
+        print("Number of Iterations: ", self._astate["idx"])
+        print("Dual Certificate: ", mst["dual_certificate"])
+
+    def get_flat_norm_values(self, x0: pxt.NDArray, a0: pxt.NDArray, lambdas: List):
+        x, a = self.solution()
+        costs = []
+        for lambda_ in lambdas:
+            costs.append(flat_norm(x0, x, a0, a, lambda_).cost)
+        return costs
+
+    def flat_norm_results(self, x0: pxt.NDArray, a0: pxt.NDArray, lambdas: pxt.NDArray | List[float]):
+        print("Flat norm: ")
+        costs = self.get_flat_norm_values(x0, a0, lambdas)
+        for lambda_, cost in zip(lambdas, costs):
+            print(f"Lambda = {lambda_}: {cost:.5f}")
+
+    def plot_flat_norm(self, x0: pxt.NDArray, a0: pxt.NDArray):
+        grid = np.logspace(-3, 0, 25)
+        costs = self.get_flat_norm_values(x0, a0, grid)
+
+        plt.plot(grid, costs)
+        plt.semilogx()
         plt.legend()
         plt.show()
 

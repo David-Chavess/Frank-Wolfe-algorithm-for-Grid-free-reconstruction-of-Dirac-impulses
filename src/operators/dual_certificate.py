@@ -58,14 +58,27 @@ class SmoothDualCertificate(DualCertificate):
                  lambda_: float,
                  sigma: float,
                  grid: pxt.NDArray,
+                 discrete: bool = True,
                  x_dim: int = 1):
         super().__init__(xk, ak, measurements, operator, lambda_, x_dim)
 
         self.sigma = sigma
         self.grid = grid
-        z = self.fun(self.grid)
-        self.z_smooth = gaussian_filter1d(z, sigma)
+
+        if discrete:
+            z = self.fun(self.grid)
+            self.z_smooth = gaussian_filter1d(z, sigma)
+        else:
+            sigma = 1 / sigma
+            gaussian_fourier = lambda x: np.exp(-1 * sigma ** 2 * x ** 2 / 2)
+            phi = self.op
+            yi = (measurements - phi(ak)) * gaussian_fourier(self.op.w)
+            phiS = phi.adjoint_function(yi)
+            self.fun = lambda t: np.abs(phiS(t) / self.lambda_)
+            self.z_smooth = self.fun(self.grid)
 
     def get_peaks(self):
         peaks = find_peaks(self.z_smooth)[0]
         return self.grid[peaks]
+
+
