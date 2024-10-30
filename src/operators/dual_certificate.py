@@ -80,5 +80,3 @@ class SmoothDualCertificate(DualCertificate):
     def get_peaks(self):
         peaks = find_peaks(self.z_smooth)[0]
         return self.grid[peaks]
-
-

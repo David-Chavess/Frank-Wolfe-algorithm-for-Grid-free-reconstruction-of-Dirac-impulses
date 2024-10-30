@@ -11,8 +11,8 @@ import pyxu.operator as pxop
 import pyxu.opt.stop as pxos
 from pyxu.abc import StoppingCriterion
 from pyxu.opt.solver.pgd import PGD
-from pyxu.util import as_real_op, view_as_real, view_as_complex
-from scipy.optimize import linprog, minimize
+from pyxu.util import view_as_complex
+from scipy.optimize import minimize
 
 from src.metrics.flat_norm import flat_norm
 from src.operators.dual_certificate import DualCertificate, SmoothDualCertificate
@@ -31,8 +31,10 @@ class FW(pxs.Solver):
             bounds: pxt.NDArray,
             verbose: bool = False,
             options: Dict[str, Any] = None,
+            seed: int = 1,
             **kwargs):
         super().__init__(**kwargs)
+        np.random.seed(seed)
 
         self.y = measurements
         self.forward_op = forward_op
@@ -46,7 +48,6 @@ class FW(pxs.Solver):
         # Initialize the swarm parameters
         self.swarm = options.get("swarm", False)
         self.swarm_iterations = options.get("swarm_iterations", 10)
-        self.swarm_n_particles = options.get("swarm_n_particles", 100)
         self.swarm_w = options.get("swarm_w", 0.25)
         self.swarm_c1 = options.get("swarm_c1", 0.75)
         self.swarm_c2 = options.get("swarm_c2", 0.25)
@@ -56,25 +57,25 @@ class FW(pxs.Solver):
 
         self.verbose = verbose
 
-        self.initialization = options.get("initialization", "random")
+        self.initialization = options.get("initialization", "smoothing")
         if self.initialization not in ["random", "grid", "smoothing"]:
             raise ValueError(f"Invalid initialization method: {self.initialization}")
 
-        self.smooth_sigma = options.get("smooth_sigma", 5)
-        self.smooth_grid_size = options.get("smooth_grid_size", 1000)
+        self.smooth_sigma = options.get("smooth_sigma", 2.5)
+
+        self.n_particles = options.get("n_particles", 100)
 
         self.merge = options.get("merge", False)
-        self.add_one = options.get("add_one", False)
+        self.polyatomic = options.get("polyatomic", True)
         self.sliding = options.get("sliding", False)
-        self.simplex = options.get("simplex", False)
 
         self.max_iter = options.get("max_iter", 100)
 
-        self.min_iter = options.get("min_iter", 2)
+        self.min_iter = options.get("min_iter", 3)
         self.dual_certificate_tol = options.get("dual_certificate_tol", 1e-2)
 
         self.grad_max_iterations = options.get("grad_iterations", 100)
-        self.grad_tol = options.get("grad_tol", 1e-4)
+        self.grad_tol = options.get("grad_tol", 1e-5)
 
     def m_init(self, **kwargs):
         mst = self._mstate
@@ -104,9 +105,9 @@ class FW(pxs.Solver):
         mst = self._mstate
         # Initialize the particles and velocities
         particles = np.random.uniform(low=self.bounds[0], high=self.bounds[1],
-                                      size=(self.swarm_n_particles, self.x_dim))
+                                      size=(self.n_particles, self.x_dim))
         mst['particles'] = particles
-        mst['velocities'] = np.zeros((self.swarm_n_particles, self.x_dim))
+        mst['velocities'] = np.zeros((self.n_particles, self.x_dim))
 
         # Initialize the best positions and best costs
         mst['best_positions'] = particles.copy()
@@ -127,9 +128,9 @@ class FW(pxs.Solver):
 
         for i in range(self.swarm_iterations):
             # Random matrix used to compute the cognitive component of the velocity update
-            r1 = np.random.rand(self.swarm_n_particles, self.x_dim)
+            r1 = np.random.rand(self.n_particles, self.x_dim)
             # Random matrix used to compute the social component of the velocity update
-            r2 = np.random.rand(self.swarm_n_particles, self.x_dim)
+            r2 = np.random.rand(self.n_particles, self.x_dim)
 
             # Cognitive component is calculated by taking the difference between the
             # particle's current position and its best personal position found so far,
@@ -177,14 +178,16 @@ class FW(pxs.Solver):
         # Initialize the particles
         if self.initialization == "random":
             mst['particles'] = np.random.uniform(low=self.bounds[0], high=self.bounds[1],
-                                                 size=(self.swarm_n_particles, self.x_dim))
+                                                 size=(self.n_particles, self.x_dim))
         elif self.initialization == "grid":
             n = int(2 * np.max(np.abs(self.forward_op.w))) + 1
             n = int(n * max(self.bounds[1] - self.bounds[0], 1))
             mst['particles'] = np.linspace(self.bounds[0], self.bounds[1], n).reshape(-1, self.x_dim)
         elif self.initialization == "smoothing":
+            n = int(2 * np.max(np.abs(self.forward_op.w))) + 1
+            n = int(n * max(self.bounds[1] - self.bounds[0], 1)) * 5
             sigma = self.smooth_sigma
-            grid = np.linspace(self.bounds[0], self.bounds[1], self.smooth_grid_size)
+            grid = np.linspace(self.bounds[0], self.bounds[1], n)
             smooth_dual_cert = SmoothDualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_, sigma, grid, discrete=True)
             mst['particles'] = smooth_dual_cert.get_peaks().reshape(-1, self.x_dim)
             mst["smooth_dual_certificate"].append((grid, smooth_dual_cert.z_smooth))
@@ -327,14 +330,14 @@ class FW(pxs.Solver):
         mst["iter_candidates"].append(mst["best_positions"].copy())
 
         # Add new atoms to the current set of atoms
-        if self.add_one:
-            # Add the global best particles to the list of candidates
-            mst["x_candidates"] = np.append(mst["x"], mst["global_best_position"])
-            mst["a_candidates"] = np.append(mst["a"], 0)
-        else:
+        if self.polyatomic:
             # Add all particles to the list of candidates
             mst["x_candidates"] = np.concatenate([mst["x"].reshape(-1, self.x_dim), mst["best_positions"]])
             mst["a_candidates"] = np.concatenate([mst["a"], np.zeros_like(mst["best_costs"])])
+        else:
+            # Add the global best particles to the list of candidates
+            mst["x_candidates"] = np.append(mst["x"], mst["global_best_position"])
+            mst["a_candidates"] = np.append(mst["a"], 0)
 
         t1 = time()
         # Correction step to update amplitudes and remove candidates with 0 amplitudes
@@ -360,12 +363,6 @@ class FW(pxs.Solver):
                 # print(f"Amplitudes: {mst['a'].ravel()}")
 
             mst["x"], mst["a"] = self.merge_atoms(mst["x"], mst["a"])
-
-            mst["iter_x"].append(mst["x"].copy())
-            mst["iter_a"].append(mst["a"].copy())
-
-        if self.simplex:
-            mst["x"], mst["a"] = self.simplex_compute()
 
             mst["iter_x"].append(mst["x"].copy())
             mst["iter_a"].append(mst["a"].copy())
@@ -441,25 +438,6 @@ class FW(pxs.Solver):
 
         return np.array([x for x, _ in merged_list]), np.array([a for _, a in merged_list])
 
-    def simplex_compute(self):
-        updated_a = self._mstate["updated_a"]
-
-        s = self.forward_op.fourier.shape
-        A = as_real_op(self.forward_op.fourier).reshape((s[0] * 2, s[1] * 2))
-        a = view_as_real(updated_a.astype(np.complex128)).ravel()
-        b = A @ a
-        lp = linprog(c=np.ones_like(a), A_eq=A, b_eq=b, method='simplex',
-                     options={"presolve": False, "tol": 1e-2})
-        print(lp.success)
-        print(lp.message)
-        a = lp.x
-        a = np.real(view_as_complex(a.reshape((a.shape[0] // 2, 2))).ravel())
-        updated_a = a
-        indices = np.abs(updated_a) > self.amplitude_threshold
-        x = self._mstate["x_candidates"][indices]
-        a = updated_a[indices]
-        return x, a
-
     def sliding_compute(self):
         x_tmp = self._mstate["x"].copy().ravel()
         a_tmp = self._mstate["a"].copy().ravel()
@@ -504,7 +482,7 @@ class FW(pxs.Solver):
         n_iter = len(mst["iter_x"])
         grid = np.linspace(self.bounds[0], self.bounds[1], 2048)
 
-        need_extra_plot = self.merge or self.sliding or self.simplex
+        need_extra_plot = self.merge or self.sliding
 
         if need_extra_plot:
             n_iter = n_iter // 2
@@ -563,8 +541,6 @@ class FW(pxs.Solver):
                     name = "Merge"
                 elif self.sliding:
                     name = "Sliding"
-                elif self.simplex:
-                    name = "Simplex"
                 else:
                     name = "None"
 
@@ -656,7 +632,7 @@ class StopDualCertificate(StoppingCriterion):
             converged = False
         else:
             converged = np.isclose(self._val, state["dual_certificate"][-1], atol=self.dual_certificate_tol).item() \
-                        and self._val < 2
+                        and self._val < 1.1
 
         state["dual_certificate"].append(self._val)
         close = np.isclose(self._val, 1, atol=self.dual_certificate_tol).item()

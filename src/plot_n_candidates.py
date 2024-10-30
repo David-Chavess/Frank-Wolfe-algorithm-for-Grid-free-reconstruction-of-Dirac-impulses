@@ -74,7 +74,7 @@ if __name__ == '__main__':
 
                 x_dim = 1
 
-                options = {"initialization": "smoothing", "add_one": False, "swarm": False, "sliding": False,
+                options = {"initialization": "smoothing", "polyatomic": True, "swarm": False, "sliding": False,
                            "swarm_n_particles": 100,
                            "max_iter": 5, "dual_certificate_tol": 1e-2, "smooth_sigma": sigma, "smooth_grid_size": 10000}
                 solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False,

@@ -35,8 +35,8 @@ if __name__ == '__main__':
     # a0 = np.array([1, 15, 0.5, -3, 5])
     a0 = np.array([1, 1, 1, 1, 1])
 
-    # x0 = np.random.uniform(-0.95, 0.95, 20) * 10
-    # a0 = np.random.uniform(0.5, 3, 20)
+    # x0 = np.random.uniform(-0.95, 0.95, 30)
+    # a0 = np.random.uniform(0.5, 3, 30)
 
     # x0 = np.array([0.1, 0.25, 0.5, 0.51, 0.7, 0.75, 0.9, 0.92])
     # a0 = np.array([1, 1, 1, 1, 1, 1, 1, 1])
@@ -94,21 +94,8 @@ if __name__ == '__main__':
 
     lambdas = [0.001, 0.01, 0.02, 0.1]
 
-    # options = {"initialization": "smoothing", "add_one": True, "swarm": False, "sliding": True,
-    #            "max_iter": 20, "dual_certificate_tol": 1e-3, "smooth_sigma": 25, "smooth_grid_size": 1000}
-    # solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False, options=options)
-    # t1 = time()
-    # solver.fit()
-    # print("Time: ", time() - t1)
-    # solver.time_results()
-    # solver.plot(x0, a0)
-    # solver.flat_norm_results(x0, a0, lambdas)
-    # solver.plot_solution(x0, a0)
-    #
-    # costs1 = solver.get_flat_norm_values(x0, a0, np.logspace(-3, 0, 25))
-
-    options = {"initialization": "smoothing", "add_one": False, "swarm": False, "sliding": False,
-               "max_iter": 20, "dual_certificate_tol": 1e-3, "smooth_sigma": 25, "smooth_grid_size": 1000}
+    options = {"initialization": "smoothing", "polyatomic": False, "swarm": False, "sliding": True,
+               "max_iter": 20, "dual_certificate_tol": 1e-2, "smooth_sigma": 5}
     solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False, options=options)
     t1 = time()
     solver.fit()
@@ -117,10 +104,14 @@ if __name__ == '__main__':
     solver.plot(x0, a0)
     solver.flat_norm_results(x0, a0, lambdas)
     solver.plot_solution(x0, a0)
-    # costs2 = solver.get_flat_norm_values(x0, a0, np.logspace(-3, 0, 25))
-    #
-    # plt.plot(np.logspace(-3, 0, 25), costs1, label="Sliding")
-    # plt.plot(np.logspace(-3, 0, 25), costs2, label="Polyatomic")
-    # plt.semilogx()
-    # plt.legend()
-    # plt.show()
+
+    options = {"initialization": "smoothing", "polyatomic": True, "swarm": False, "sliding": False,
+               "max_iter": 20, "dual_certificate_tol": 1e-2, "smooth_sigma": 2.5}
+    solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False, options=options)
+    t1 = time()
+    solver.fit()
+    print("Time: ", time() - t1)
+    solver.time_results()
+    solver.plot(x0, a0)
+    solver.flat_norm_results(x0, a0, lambdas)
+    solver.plot_solution(x0, a0)
