@@ -31,6 +31,9 @@ if __name__ == '__main__':
     # a0 = np.array([3, 4.5, -1.5, -3, 4, 3, 1, 2.5, -1, 0.5, 1, 1, 1, 3, 1, 1])
     # a0 = np.abs(a0)
 
+    # x0 = np.array([0.2, 0.5, 0.8])
+    # a0 = np.array([1, 2, 1.5])
+
     N = 100
     bounds = np.array([-1000, 1000])
     forward_op = FourierOperator.get_RandomFourierOperator(x0, N, bounds)

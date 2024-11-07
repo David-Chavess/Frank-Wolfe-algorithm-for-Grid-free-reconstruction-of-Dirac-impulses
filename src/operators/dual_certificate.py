@@ -36,7 +36,7 @@ class DualCertificate(Func):
         super().__init__(x_dim, 1)
 
     def apply(self, t: pxt.NDArray) -> pxt.NDArray:
-        return self.fun(t)
+        return self.fun(t).ravel()
 
     def grad(self, t: pxt.NDArray) -> pxt.NDArray:
         return self.grad(t)

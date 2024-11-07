@@ -56,6 +56,7 @@ class FW(pxs.Solver):
         self.merge_threshold = options.get("merge_threshold", 0.005)
 
         self.verbose = verbose
+        self.animation = options.get("animation", False)
 
         self.initialization = options.get("initialization", "smoothing")
         if self.initialization not in ["random", "grid", "smoothing"]:
@@ -202,6 +203,7 @@ class FW(pxs.Solver):
         learning_rate = 1 / (2 * np.linalg.norm(self.dual_certificate_grad(x)) * np.max(np.abs(self.forward_op.w)))
 
         old_x = mst['particles'].copy()
+        all_particles = [mst['particles'].copy()]
         for i in range(self.grad_max_iterations):
             grad = self.dual_certificate_grad(mst['particles']).reshape(-1, self.x_dim)
 
@@ -216,6 +218,39 @@ class FW(pxs.Solver):
             if np.allclose(current_x, old_x, atol=self.grad_tol) or np.linalg.norm(current_x - old_x) < self.grad_tol:
                 break
             old_x = current_x
+            all_particles.append(mst['particles'].copy())
+
+        if self._astate["idx"] == 1 and self.animation:
+            import matplotlib.animation as animation
+
+            n_iterations = len(all_particles)
+            fig, ax = plt.subplots()
+
+            x = np.linspace(0, 1, 1000)
+            y = self.dual_certificate(x)
+            plt.plot(x, y, label='Empirical Dual Certificate', color='blue')
+
+            # Initialize the plot with the first point
+            xdata = all_particles[0].ravel()
+            ydata = self.dual_certificate(xdata)
+            scatter = ax.scatter(xdata, ydata, label='Gradient Steps')
+            x0 = np.array([0.2, 0.5, 0.8])
+            a0 = np.array([1, 2, 1.5])
+            ax.stem(x0, a0, linefmt='k.--', markerfmt='ko', basefmt=" ", label='Ground Truth')
+            ax.legend()
+
+            def update(frame):
+                x = all_particles[frame].ravel()
+                y = self.dual_certificate(x)
+                scatter.set_offsets(np.c_[x, y])
+                return scatter,
+
+            # Create and save the animation
+            ani = animation.FuncAnimation(fig, update, frames=n_iterations, blit=True)
+            writer = animation.PillowWriter(fps=200,
+                                            metadata=dict(artist='Me'),
+                                            bitrate=1800)
+            ani.save(f'gradient_descent_{self._astate["idx"]}.gif', writer=writer)
 
         if self.initialization == "smoothing":
             mst['best_positions'] = mst['particles']
@@ -327,7 +362,10 @@ class FW(pxs.Solver):
             # print(f"Positions: {mst['x'].ravel()}")
             # print(f"Amplitudes: {mst['a'].ravel()}")
 
-        mst["iter_candidates"].append(mst["best_positions"].copy())
+        if self.polyatomic:
+            mst["iter_candidates"].append(mst["best_positions"].copy())
+        else:
+            mst["iter_candidates"].append(mst['global_best_position'].copy())
 
         # Add new atoms to the current set of atoms
         if self.polyatomic:
@@ -486,9 +524,9 @@ class FW(pxs.Solver):
 
         if need_extra_plot:
             n_iter = n_iter // 2
-            fig, axs = plt.subplots(n_iter, 3, figsize=(20, 5 * n_iter))
+            fig, axs = plt.subplots(n_iter, 3, figsize=(25, 5 * n_iter))
         else:
-            fig, axs = plt.subplots(n_iter, 2, figsize=(10, 5 * n_iter))
+            fig, axs = plt.subplots(n_iter, 2, figsize=(15, 5 * n_iter))
 
         # Initial dual certificate
         dual_cert = DualCertificate(np.array([]), np.array([]), self.y, self.forward_op,
@@ -523,6 +561,7 @@ class FW(pxs.Solver):
             axs[i, 1].grid(True)
             axs[i, 1].set_zorder(1)
             axs[i, 1].set_frame_on(False)
+            # axs[i, 1].set_xlim((0.49, 0.51))
 
             if need_extra_plot:
                 idx += 1
@@ -535,6 +574,7 @@ class FW(pxs.Solver):
                 axs[i, 2].stem(x, a, linefmt='k.--', markerfmt='ko', basefmt=" ", label='Ground Truth')
                 axs[i, 2].stem(mst["iter_x"][idx], mst["iter_a"][idx], linefmt='r.--', markerfmt='ro', basefmt=" ",
                                label='Reconstruction')
+                # axs[i, 2].set_xlim((0.49, 0.51))
                 # axs[i, 2].stem(mst["iter_x"][idx-1], mst["iter_a"][idx-1], linefmt='g.--', markerfmt='go', basefmt=" ",
                 #                label='R')
                 if self.merge:
@@ -562,7 +602,6 @@ class FW(pxs.Solver):
                 fig.legend(handles, labels, loc='upper center', ncol=2)
 
         plt.show()
-        # plt.savefig("results.png")
 
     def plot_solution(self, x0, a0):
         x, a = self.solution()

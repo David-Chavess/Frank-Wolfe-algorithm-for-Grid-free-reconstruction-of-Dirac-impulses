@@ -35,6 +35,9 @@ if __name__ == '__main__':
     # a0 = np.array([1, 15, 0.5, -3, 5])
     a0 = np.array([1, 1, 1, 1, 1])
 
+    # x0 = np.array([0.2, 0.5, 0.8])
+    # a0 = np.array([1, 2, 1.5])
+
     # x0 = np.random.uniform(-0.95, 0.95, 30)
     # a0 = np.random.uniform(0.5, 3, 30)
 
@@ -42,36 +45,13 @@ if __name__ == '__main__':
     # a0 = np.array([1, 1, 1, 1, 1, 1, 1, 1])
     # a0 = np.array([-1, 0.5, 1, 1, 1, 3, 1, 1])
 
-    x0 = np.array([-0.89, -0.7, -0.68, -0.55, -0.46, - 0.24, -0.2, -0.05, 0.1, 0.25, 0.5, 0.51, 0.7, 0.75, 0.9, 0.92])
-    a0 = np.array([3, 4.5, -1.5, -3, 4, 3, 1, 2.5, -1, -1.5, 1, 1, 1, 3, 1, 1])
+    # x0 = np.array([-0.89, -0.7, -0.68, -0.55, -0.46, - 0.24, -0.2, -0.05, 0.1, 0.25, 0.5, 0.51, 0.7, 0.75, 0.9, 0.92])
+    # a0 = np.array([3, 4.5, -1.5, -3, 4, 3, 1, 2.5, -1, -1.5, 1, 1, 1, 3, 1, 1])
     # a0 = np.abs(a0)$
 
-    # bounds = np.array([[0], [1]])
-    bounds = np.array([[-1], [1]])
+    bounds = np.array([[0], [1]])
+    # bounds = np.array([[-1], [1]])
     # bounds = np.array([[-10], [10]])
-
-    # N = 100
-    # grid = np.linspace(-1, 1, N)
-    #
-    # sigma = 0.01
-    # kernel = lambda x: np.exp(-1 * x ** 2 / (2 * sigma ** 2)) / (sigma * np.sqrt(2 * np.pi))
-    # forward = [kernel(grid - i) for i in x0]
-    #
-    # out = np.stack(forward, axis=1) @ a0
-    # print(out)
-    #
-    # conv = FFTConvolve(a0, [kernel(grid)] * 5, x0)
-    # print(conv(a0))
-    #
-    # plt.plot(grid, out)
-    # plt.show()
-    #
-    # print("Check adjoint:")
-    # y = np.random.uniform(-1, 1, N)
-    # print(conv(a0) @ y)
-    # print(conv.adjoint(y) @ a0)
-    #
-    # exit(0)
 
     N = 10 * len(x0)
     freq_bounds = np.array([-10, 10])

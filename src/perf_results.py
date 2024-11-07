@@ -31,7 +31,7 @@ if __name__ == '__main__':
         plt.show()
 
     costs = {}
-    lambda_grid = np.logspace(-2, 0, 25)
+    lambda_grid = np.logspace(-3, -1, 25)
     for frequency in ["low", "high", "very_high"]:
         np.random.seed(1)
         N = 10 * len(x0)
@@ -66,41 +66,41 @@ if __name__ == '__main__':
         bounds = np.array([[-1], [1]])
         lambdas = [0.001, 0.01, 0.02, 0.1]
 
-        # gc.collect()
-        # options = {"initialization": "smoothing", "polyatomic": False, "swarm": False, "sliding": True,
-        #            "max_iter": 100, "dual_certificate_tol": 1e-2, "smooth_sigma": 5}
-        # solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False,
-        #             options=options)
-        # t1 = time()
-        # solver.fit()
-        # print("SFW - Time: ", time() - t1)
-        # solver.time_results()
-        # solver.flat_norm_results(x0, a0, lambdas)
-        #
-        # if plot:
-        #     solver.plot(x0, a0)
-        #     solver.plot_solution(x0, a0)
-        #
-        # if cost_plot:
-        #     costs[f"SFW_{frequency}"] = solver.get_flat_norm_values(x0, a0, lambda_grid)
-        #
-        # gc.collect()
-        # options = {"polyatomic": False, "swarm": True, "sliding": True,
-        #            "max_iter": 100, "dual_certificate_tol": 1e-2, "n_particles": freq * 10}
-        # solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False,
-        #             options=options)
-        # t1 = time()
-        # solver.fit()
-        # print("SFW_swarm - Time: ", time() - t1)
-        # solver.time_results()
-        # solver.flat_norm_results(x0, a0, lambdas)
-        #
-        # if plot:
-        #     solver.plot(x0, a0)
-        #     solver.plot_solution(x0, a0)
-        #
-        # if cost_plot:
-        #     costs[f"SFW_swarm_{frequency}"] = solver.get_flat_norm_values(x0, a0, lambda_grid)
+        gc.collect()
+        options = {"initialization": "smoothing", "polyatomic": False, "swarm": False, "sliding": True,
+                   "max_iter": 100, "dual_certificate_tol": 1e-2, "smooth_sigma": 5}
+        solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False,
+                    options=options)
+        t1 = time()
+        solver.fit()
+        print("SFW - Time: ", time() - t1)
+        solver.time_results()
+        solver.flat_norm_results(x0, a0, lambdas)
+
+        if plot:
+            solver.plot(x0, a0)
+            solver.plot_solution(x0, a0)
+
+        if cost_plot:
+            costs[f"SFW_{frequency}"] = solver.get_flat_norm_values(x0, a0, lambda_grid)
+
+        gc.collect()
+        options = {"polyatomic": False, "swarm": True, "sliding": True,
+                   "max_iter": 100, "dual_certificate_tol": 1e-2, "n_particles": freq * 10}
+        solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False,
+                    options=options)
+        t1 = time()
+        solver.fit()
+        print("SFW_swarm - Time: ", time() - t1)
+        solver.time_results()
+        solver.flat_norm_results(x0, a0, lambdas)
+
+        if plot:
+            solver.plot(x0, a0)
+            solver.plot_solution(x0, a0)
+
+        if cost_plot:
+            costs[f"SFW_swarm_{frequency}"] = solver.get_flat_norm_values(x0, a0, lambda_grid)
 
         gc.collect()
         options = {"initialization": "smoothing", "polyatomic": True, "swarm": False, "sliding": False,
