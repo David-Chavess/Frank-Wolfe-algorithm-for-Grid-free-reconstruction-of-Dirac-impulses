@@ -226,7 +226,7 @@ class FW(pxs.Solver):
             n_iterations = len(all_particles)
             fig, ax = plt.subplots()
 
-            x = np.linspace(0, 1, 1000)
+            x = np.linspace(self.bounds[0], self.bounds[1], 2048)
             y = self.dual_certificate(x)
             plt.plot(x, y, label='Empirical Dual Certificate', color='blue')
 
@@ -479,22 +479,36 @@ class FW(pxs.Solver):
     def sliding_compute(self):
         x_tmp = self._mstate["x"].copy().ravel()
         a_tmp = self._mstate["a"].copy().ravel()
-        op = DiffFourierOperator.get_DiffFourierOperator(self.forward_op)
 
-        def fun(xa):
-            x, a = np.split(xa, 2)
-            z = op(xa) - view_as_complex(self.y)
-            return np.real(z.T.conj() @ z) / 2 + self.lambda_ * np.sum(np.abs(a))
+        op = self.forward_op.get_DiffOperator()
 
-        def grad(xa):
-            x, a = np.split(xa, 2)
-            z = op(xa) - view_as_complex(self.y)
-            grad_x = a * (op.grad_x(xa) @ z)
-            grad_a = op.grad_a(xa) @ z + self.lambda_ * np.sign(a)
-            return np.real(np.concatenate([grad_x, grad_a]))
+        if self.forward_op.is_complex():
+            def fun(xa):
+                x, a = np.split(xa, 2)
+                z = op(xa) - view_as_complex(self.y)
+                return np.real(z.T.conj() @ z) / 2 + self.lambda_ * np.sum(np.abs(a))
 
-        op = minimize(fun, np.concatenate([x_tmp, a_tmp]), method="BFGS", jac=grad)
-        return np.split(op.x, 2)
+            def grad(xa):
+                x, a = np.split(xa, 2)
+                z = op(xa) - view_as_complex(self.y)
+                grad_x = a * (op.grad_x(xa) @ z)
+                grad_a = op.grad_a(xa) @ z + self.lambda_ * np.sign(a)
+                return np.real(np.concatenate([grad_x, grad_a]))
+        else:
+            def fun(xa):
+                x, a = np.split(xa, 2)
+                z = op(xa) - self.y
+                return (z.T @ z) / 2 + self.lambda_ * np.sum(np.abs(a))
+
+            def grad(xa):
+                x, a = np.split(xa, 2)
+                z = op(xa) - self.y
+                grad_x = a * (op.grad_x(xa) @ z)
+                grad_a = op.grad_a(xa) @ z + self.lambda_ * np.sign(a)
+                return np.concatenate([grad_x, grad_a])
+
+        opti = minimize(fun, np.concatenate([x_tmp, a_tmp]), method="BFGS", jac=grad)
+        return np.split(opti.x, 2)
 
     def default_stop_crit(self) -> StoppingCriterion:
         stop_crit = StopDualCertificate(self.y, self.forward_op, self.lambda_, self.bounds, self.dual_certificate_tol)

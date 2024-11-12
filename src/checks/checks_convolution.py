@@ -1,8 +1,7 @@
 import numpy as np
-from pyxu.util import view_as_complex
 from scipy.optimize import minimize
 
-from src.operators.convolution_operator import ConvolutionOperator, DiffConvolutionOperator
+from src.operators.convolution_operator import ConvolutionOperator
 from src.operators.dual_certificate import DualCertificate
 
 
@@ -46,52 +45,52 @@ if __name__ == '__main__':
     print("lambda_max = ", lambda_max)
     lambda_ = 0.1 * lambda_max
 
-    # op = DiffConvolutionOperator(x0, fwhm, bounds)
-    #
-    # def fun(xa):
-    #     x, a = np.split(xa, 2)
-    #     z = op(xa) - view_as_complex(y)
-    #     return np.real(z.T.conj() @ z) / 2 + lambda_ * np.sum(np.abs(a))
-    #
-    #
-    # def grad(xa):
-    #     x, a = np.split(xa, 2)
-    #     z = op(xa) - view_as_complex(y)
-    #     grad_x = a * (op.grad_x(xa) @ z)
-    #     grad_a = op.grad_a(xa) @ z + lambda_ * np.sign(a)
-    #     return np.real(np.concatenate([grad_x, grad_a]))
-    #
-    #
-    # def finite_grad(xa):
-    #     finite_grad = np.zeros_like(xa)
-    #     eps = 1e-10
-    #     for i in range(len(xa)):
-    #         xa_eps = xa.copy()
-    #         xa_eps[i] += eps
-    #         finite_grad[i] = (fun(xa_eps) - fun(xa)) / eps
-    #     return finite_grad
-    #
-    #
-    # xa = np.concatenate([x0, a0])
-    # assert np.allclose(grad(xa), finite_grad(xa), atol=1e-2)
-    # xa = np.concatenate([[0.1], [1.]])
-    # assert np.allclose(grad(xa), finite_grad(xa), atol=1e-2)
-    # xa = np.concatenate([[0.11111], [0.001]])
-    # assert np.allclose(grad(xa), finite_grad(xa), atol=1e-2)
-    #
-    # out = minimize(fun, np.concatenate([x0 + 0.01, a0 - 0.1]), method="BFGS")
-    # print(np.split(out.x, 2))
-    # print(out)
-    # x = out.x[:len(x0)]
-    # a = out.x[len(x0):]
-    # print("Distance: ", np.sum(np.abs(x - x0)))
-    #
-    # out = minimize(fun, np.concatenate([x0 + 0.01, a0 - 0.1]), method="BFGS", jac=grad)
-    # print(np.split(out.x, 2))
-    # print(out)
-    # x = out.x[:len(x0)]
-    # a = out.x[len(x0):]
-    # print("Distance: ", np.sum(np.abs(x - x0)))
+    op = forward_op.get_DiffOperator()
+
+    def fun(xa):
+        x, a = np.split(xa, 2)
+        z = op(xa) - y
+        return np.real(z.T.conj() @ z) / 2 + lambda_ * np.sum(np.abs(a))
+
+
+    def grad(xa):
+        x, a = np.split(xa, 2)
+        z = op(xa) - y
+        grad_x = a * (op.grad_x(xa) @ z)
+        grad_a = op.grad_a(xa) @ z + lambda_ * np.sign(a)
+        return np.real(np.concatenate([grad_x, grad_a]))
+
+
+    def finite_grad(xa):
+        finite_grad = np.zeros_like(xa)
+        eps = 1e-10
+        for i in range(len(xa)):
+            xa_eps = xa.copy()
+            xa_eps[i] += eps
+            finite_grad[i] = (fun(xa_eps) - fun(xa)) / eps
+        return finite_grad
+
+
+    xa = np.concatenate([x0, a0])
+    assert np.allclose(grad(xa), finite_grad(xa), atol=1e-2)
+    xa = np.concatenate([[0.1], [1.]])
+    assert np.allclose(grad(xa), finite_grad(xa), atol=1e-2)
+    xa = np.concatenate([[0.11111], [0.001]])
+    assert np.allclose(grad(xa), finite_grad(xa), atol=1e-2)
+
+    out = minimize(fun, np.concatenate([x0 + 0.01, a0 - 0.1]), method="BFGS")
+    print(np.split(out.x, 2))
+    print(out)
+    x = out.x[:len(x0)]
+    a = out.x[len(x0):]
+    print("Distance: ", np.sum(np.abs(x - x0)))
+
+    out = minimize(fun, np.concatenate([x0 + 0.01, a0 - 0.1]), method="BFGS", jac=grad)
+    print(np.split(out.x, 2))
+    print(out)
+    x = out.x[:len(x0)]
+    a = out.x[len(x0):]
+    print("Distance: ", np.sum(np.abs(x - x0)))
 
     dual_certificates = DualCertificate(x0, a0, y, forward_op, lambda_)
 

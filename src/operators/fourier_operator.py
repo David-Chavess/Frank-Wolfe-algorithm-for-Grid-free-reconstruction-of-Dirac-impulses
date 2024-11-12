@@ -37,6 +37,12 @@ class FourierOperator(MyLinOp):
     def get_new_operator(self, x: pxt.NDArray) -> MyLinOp:
         return FourierOperator(x, self.w, self.n_measurements)
 
+    def is_complex(self) -> bool:
+        return True
+
+    def get_DiffOperator(self) -> MyLinOp:
+        return DiffFourierOperator(self.w, self.n_measurements, 2*len(self.x))
+
     @staticmethod
     def get_RandomFourierOperator(x: pxt.NDArray, n_measurements: int, bounds: pxt.NDArray) -> MyLinOp:
         w = np.random.uniform(bounds[0], bounds[1], n_measurements)
@@ -63,12 +69,12 @@ class DiffFourierOperator(MyLinOp):
         x, a = np.split(xa, 2)
         return self.fourier(x) @ a
 
-    def grad_x(self, arr: pxt.NDArray) -> pxt.NDArray:
-        x, a = np.split(arr, 2)
+    def grad_x(self, xa: pxt.NDArray) -> pxt.NDArray:
+        x, a = np.split(xa, 2)
         return (self.fourier(x) * -2j * np.pi * self.w).T.conj()
 
-    def grad_a(self, arr: pxt.NDArray) -> pxt.NDArray:
-        x, a = np.split(arr, 2)
+    def grad_a(self, xa: pxt.NDArray) -> pxt.NDArray:
+        x, a = np.split(xa, 2)
         return self.fourier(x).T.conj()
 
     def adjoint(self, y: pxt.NDArray) -> pxt.NDArray:
@@ -81,6 +87,5 @@ class DiffFourierOperator(MyLinOp):
     def get_new_operator(self, x: pxt.NDArray) -> MyLinOp:
         return DiffFourierOperator(self.w, self.n_measurements, self.input_size)
 
-    @staticmethod
-    def get_DiffFourierOperator(op: FourierOperator) -> MyLinOp:
-        return DiffFourierOperator(op.w, op.n_measurements, 2*len(op.x))
+    def is_complex(self) -> bool:
+        return True

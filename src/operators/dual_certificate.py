@@ -66,7 +66,7 @@ class SmoothDualCertificate(DualCertificate):
         self.grid = grid
 
         if discrete:
-            z = self.fun(self.grid)
+            z = self.fun(self.grid).ravel()
             self.z_smooth = gaussian_filter1d(z, sigma)
         else:
             sigma = 1 / sigma

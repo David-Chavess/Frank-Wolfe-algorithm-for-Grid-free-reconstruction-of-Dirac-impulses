@@ -22,3 +22,9 @@ class MyLinOp(LinOp):
 
     def get_new_operator(self, x: pxt.NDArray) -> Self:
         pass
+
+    def is_complex(self) -> bool:
+        pass
+
+    def get_DiffOperator(self) -> Self:
+        pass

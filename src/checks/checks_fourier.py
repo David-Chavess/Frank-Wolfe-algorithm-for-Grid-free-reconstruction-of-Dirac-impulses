@@ -3,7 +3,7 @@ from pyxu.util import view_as_complex
 from scipy.optimize import minimize
 
 from src.operators.dual_certificate import DualCertificate
-from src.operators.fourier_operator import FourierOperator, DiffFourierOperator
+from src.operators.fourier_operator import FourierOperator
 
 
 def add_psnr(y0, psnr, N):
@@ -54,7 +54,7 @@ if __name__ == '__main__':
     print("lambda_max = ", lambda_max)
     lambda_ = 0.1 * lambda_max
 
-    op = DiffFourierOperator.get_DiffFourierOperator(forward_op)
+    op = forward_op.get_DiffOperator()
 
 
     def fun(xa):
