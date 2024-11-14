@@ -21,7 +21,7 @@ class ConvolutionOperator(MyLinOp):
         self.outer_sub = lambda t: np.subtract.outer(grid, t)
         self.forward_pre = self.kernel(self.outer_sub(self.x))
 
-        self.w = 1 / self.fwhm
+        self.scaling = 1 / self.fwhm
 
         super().__init__(max(len(x), 1), self.n_measurements)
 
@@ -47,6 +47,9 @@ class ConvolutionOperator(MyLinOp):
     def get_DiffOperator(self) -> MyLinOp:
         return DiffConvolutionOperator(self.fwhm, self.bounds, 2*len(self.x))
 
+    def get_scaling(self) -> pxt.Real:
+        return self.scaling
+
 
 class DiffConvolutionOperator(MyLinOp):
 
@@ -61,6 +64,8 @@ class DiffConvolutionOperator(MyLinOp):
 
         self.kernel = lambda t: np.exp(-1 * t ** 2 / (2 * self.sigma ** 2)) / (self.sigma * np.sqrt(2 * np.pi))
         self.outer_sub = lambda t: np.subtract.outer(grid, t)
+
+        self.scaling = 1 / self.fwhm
 
         super().__init__(max(input_size, 1), self.n_measurements)
 
@@ -87,3 +92,6 @@ class DiffConvolutionOperator(MyLinOp):
 
     def is_complex(self) -> bool:
         return False
+
+    def get_scaling(self) -> pxt.Real:
+        return self.scaling

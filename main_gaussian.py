@@ -29,15 +29,14 @@ if __name__ == '__main__':
 
     x0 = np.array([0.1, 0.25, 0.5, 0.7, 0.9])
     a0 = np.array([1, 1.5, 3.5, 2, 5])
-    # a0 = np.array([1, 15, 0.5, -3, 5])
     # a0 = np.array([1, 1, 1, 1, 1])
 
     # x0 = np.array([-0.89, -0.7, -0.68, -0.55, -0.46, - 0.24, -0.2, -0.05, 0.1, 0.25, 0.5, 0.51, 0.7, 0.75, 0.9, 0.92])
-    # a0 = np.array([3, 4.5, -1.5, -3, 4, 3, 1, 2.5, -1, -1.5, 1, 1, 1, 3, 1, 1])
+    # a0 = np.array([3, 4.5, 1.5, 3, 4, 3, 1, 2.5, 1, 1.5, 1, 1, 1, 3, 1, 1])
 
     x_dim = 1
-    bounds = np.array([[0], [1]])
-    # bounds = np.array([[-1], [1]])
+    bounds = np.array([0, 1])
+    # bounds = np.array([-1, 1])
 
     # Full width at half maximum
     fwhm = 0.1
@@ -58,18 +57,18 @@ if __name__ == '__main__':
 
     lambdas = [0.001, 0.01, 0.02, 0.1]
 
-    options = {"initialization": "grid", "polyatomic": False, "swarm": False, "sliding": True,
-               "max_iter": 20, "dual_certificate_tol": 1e-2, "smooth_sigma": 5}
-    solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False, options=options)
-    t1 = time()
-    solver.fit()
-    print("Time: ", time() - t1)
-    solver.time_results()
-    solver.plot(x0, a0)
-    solver.flat_norm_results(x0, a0, lambdas)
-    solver.plot_solution(x0, a0)
+    # options = {"initialization": "smoothing", "polyatomic": False, "swarm": False, "sliding": True, "positive_constraint": False,
+    #            "max_iter": 20, "dual_certificate_tol": 1e-2, "smooth_sigma": 5}
+    # solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False, options=options)
+    # t1 = time()
+    # solver.fit()
+    # print("Time: ", time() - t1)
+    # solver.time_results()
+    # solver.plot(x0, a0)
+    # solver.flat_norm_results(x0, a0, lambdas)
+    # solver.plot_solution(x0, a0)
 
-    options = {"initialization": "grid", "polyatomic": True, "swarm": False, "sliding": False,
+    options = {"initialization": "grid", "polyatomic": True, "swarm": False, "sliding": False, "positive_constraint": False,
                "max_iter": 5, "dual_certificate_tol": 1e-2, "smooth_sigma": 20, "animation": False}
     solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False, options=options)
     t1 = time()

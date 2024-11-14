@@ -16,7 +16,6 @@ from scipy.optimize import minimize
 
 from src.metrics.flat_norm import flat_norm
 from src.operators.dual_certificate import DualCertificate, SmoothDualCertificate
-from src.operators.fourier_operator import DiffFourierOperator
 from src.operators.my_lin_op import MyLinOp
 
 
@@ -78,6 +77,8 @@ class FW(pxs.Solver):
         self.grad_max_iterations = options.get("grad_iterations", 100)
         self.grad_tol = options.get("grad_tol", 1e-5)
 
+        self.positive_constraint = options.get("positive_constraint", False)
+
     def m_init(self, **kwargs):
         mst = self._mstate
 
@@ -85,13 +86,11 @@ class FW(pxs.Solver):
         mst["x"] = np.array([], dtype=np.float64)
         mst["a"] = np.array([], dtype=np.float64)
 
+        # Initialize of the metrics
         mst["candidates_search_durations"] = []
-
         mst["correction_iterations"] = []
         mst["correction_durations"] = []
-
         mst["sliding_durations"] = []
-
         mst["dual_certificate"] = []
 
         # Plot
@@ -167,29 +166,33 @@ class FW(pxs.Solver):
 
             # Update the global best position and global best cost
             global_best_index = np.argmax(mst['best_costs'])
-            mst['global_best_position'] = mst['best_positions'][global_best_index].copy()
+            mst['global_best_position'] = mst['best_positions'][global_best_index].copy().reshape(-1, self.x_dim)
             mst['global_best_cost'] = mst['best_costs'][global_best_index]
-
-        if self.verbose:
-            print(f"Global Best Position: {mst['global_best_position'].ravel()}")
 
     def gradient_ascent(self):
         mst = self._mstate
+
+        n = int(2 * self.forward_op.get_scaling()) + 1
+        n = int(n * max(self.bounds[1] - self.bounds[0], 1))
 
         # Initialize the particles
         if self.initialization == "random":
             mst['particles'] = np.random.uniform(low=self.bounds[0], high=self.bounds[1],
                                                  size=(self.n_particles, self.x_dim))
         elif self.initialization == "grid":
-            n = int(2 * np.max(np.abs(self.forward_op.w))) + 1
-            n = int(n * max(self.bounds[1] - self.bounds[0], 1))
-            mst['particles'] = np.linspace(self.bounds[0], self.bounds[1], n).reshape(-1, self.x_dim)
+            if self.x_dim == 1:
+                mst['particles'] = np.linspace(self.bounds[0], self.bounds[1], n).reshape(-1, self.x_dim)
+            elif self.x_dim == 2:
+                grid1 = np.linspace(self.bounds[0], self.bounds[1], n+1)[1:-1]
+                grid2 = np.linspace(self.bounds[0], self.bounds[1], n+1)[1:-1]
+                xx, yy = np.meshgrid(grid1, grid2)
+                mst['particles'] = np.stack([xx.ravel(), yy.ravel()], axis=1)
+            else:
+                raise ValueError("Grid initialization is only available for 1D and 2D signals.")
         elif self.initialization == "smoothing":
-            n = int(2 * np.max(np.abs(self.forward_op.w))) + 1
-            n = int(n * max(self.bounds[1] - self.bounds[0], 1)) * 5
-            sigma = self.smooth_sigma
-            grid = np.linspace(self.bounds[0], self.bounds[1], n)
-            smooth_dual_cert = SmoothDualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_, sigma, grid, discrete=True)
+            grid = np.linspace(self.bounds[0], self.bounds[1], n * 5)
+            smooth_dual_cert = SmoothDualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_,
+                                                     self.smooth_sigma, grid, discrete=True)
             mst['particles'] = smooth_dual_cert.get_peaks().reshape(-1, self.x_dim)
             mst["smooth_dual_certificate"].append((grid, smooth_dual_cert.z_smooth))
             mst["smooth_peaks"].append(mst['particles'])
@@ -200,12 +203,12 @@ class FW(pxs.Solver):
         for i in range(10):
             x = self.dual_certificate_grad(x)
             x = x / np.linalg.norm(x)
-        learning_rate = 1 / (2 * np.linalg.norm(self.dual_certificate_grad(x)) * np.max(np.abs(self.forward_op.w)))
+        learning_rate = 1 / (2 * np.linalg.norm(self.dual_certificate_grad(x)) * self.forward_op.get_scaling())
 
         old_x = mst['particles'].copy()
         all_particles = [mst['particles'].copy()]
         for i in range(self.grad_max_iterations):
-            grad = self.dual_certificate_grad(mst['particles']).reshape(-1, self.x_dim)
+            grad = self.dual_certificate_grad(mst['particles'])
 
             # Update the particles
             mst['particles'] += learning_rate * grad
@@ -257,15 +260,13 @@ class FW(pxs.Solver):
         else:
             # Need to remove duplicates positions
             mst['best_positions'] = np.unique(mst['particles'].round(decimals=5), axis=0)
+            # mst['best_positions'] = mst['particles']
 
         mst['best_costs'] = self.dual_certificate(mst['best_positions'])
 
         global_best_index = np.argmax(mst['best_costs'])
-        mst['global_best_position'] = mst['best_positions'][global_best_index].copy()
+        mst['global_best_position'] = mst['best_positions'][global_best_index].copy().reshape(-1, self.x_dim)
         mst['global_best_cost'] = mst['best_costs'][global_best_index]
-
-        if self.verbose:
-            print(f"Best Position: {mst['best_positions'].ravel()}")
 
     def correction_step(self) -> pxt.NDArray:
         r"""
@@ -299,7 +300,11 @@ class FW(pxs.Solver):
         if self._astate["idx"] == 1:
             a0[0] = 1e-5
 
-        penalty = pxop.L1Norm(dim)
+        if self.positive_constraint:
+            penalty = pxop.PositiveL1Norm(dim)
+        else:
+            penalty = pxop.L1Norm(dim)
+
         apgd = PGD(data_fid, self.lambda_ * penalty, show_progress=False)
 
         min_iter = pxos.MaxIter(n=10)
@@ -320,7 +325,7 @@ class FW(pxs.Solver):
 
         indices = np.abs(updated_a) > self.amplitude_threshold
 
-        x = mst["x_candidates"][indices]
+        x = mst["x_candidates"][indices].reshape(-1, self.x_dim)
         a = updated_a[indices]
         return x, a
 
@@ -374,7 +379,7 @@ class FW(pxs.Solver):
             mst["a_candidates"] = np.concatenate([mst["a"], np.zeros_like(mst["best_costs"])])
         else:
             # Add the global best particles to the list of candidates
-            mst["x_candidates"] = np.append(mst["x"], mst["global_best_position"])
+            mst["x_candidates"] = np.concatenate([mst["x"].reshape(-1, self.x_dim), mst["global_best_position"]])
             mst["a_candidates"] = np.append(mst["a"], 0)
 
         t1 = time()
@@ -428,7 +433,7 @@ class FW(pxs.Solver):
                 # print(f"Amplitudes: {mst['a'].ravel()}")
 
     def solution(self) -> pxt.NDArray:
-        return self._mstate['x'].ravel(), self._mstate['a'].ravel()
+        return self._mstate['x'], self._mstate['a']
 
     def merged_solution(self) -> pxt.NDArray:
         return self.merge_atoms(self._mstate['x'], self._mstate['a'])
@@ -484,34 +489,37 @@ class FW(pxs.Solver):
 
         if self.forward_op.is_complex():
             def fun(xa):
-                x, a = np.split(xa, 2)
+                a = np.split(xa, 1 + self.x_dim)[-1]
                 z = op(xa) - view_as_complex(self.y)
                 return np.real(z.T.conj() @ z) / 2 + self.lambda_ * np.sum(np.abs(a))
 
             def grad(xa):
-                x, a = np.split(xa, 2)
+                a = np.split(xa, 1 + self.x_dim)[-1]
                 z = op(xa) - view_as_complex(self.y)
-                grad_x = a * (op.grad_x(xa) @ z)
+                grad_x = op.grad_x(xa) @ z
                 grad_a = op.grad_a(xa) @ z + self.lambda_ * np.sign(a)
                 return np.real(np.concatenate([grad_x, grad_a]))
         else:
             def fun(xa):
-                x, a = np.split(xa, 2)
+                a = np.split(xa, 1 + self.x_dim)[-1]
                 z = op(xa) - self.y
                 return (z.T @ z) / 2 + self.lambda_ * np.sum(np.abs(a))
 
             def grad(xa):
-                x, a = np.split(xa, 2)
+                a = np.split(xa, 1 + self.x_dim)[-1]
                 z = op(xa) - self.y
-                grad_x = a * (op.grad_x(xa) @ z)
+                grad_x = op.grad_x(xa) @ z
                 grad_a = op.grad_a(xa) @ z + self.lambda_ * np.sign(a)
                 return np.concatenate([grad_x, grad_a])
 
         opti = minimize(fun, np.concatenate([x_tmp, a_tmp]), method="BFGS", jac=grad)
-        return np.split(opti.x, 2)
+        xa = opti.x
+        a = np.split(xa, 1 + self.x_dim)[-1]
+        x = xa[:-len(a)].reshape(-1, self.x_dim)
+        return x, a
 
     def default_stop_crit(self) -> StoppingCriterion:
-        stop_crit = StopDualCertificate(self.y, self.forward_op, self.lambda_, self.bounds, self.dual_certificate_tol)
+        stop_crit = StopDualCertificate(self.y, self.forward_op, self.lambda_, self.bounds, self.x_dim, self.dual_certificate_tol)
         return (stop_crit & pxos.MaxIter(self.min_iter)) | pxos.MaxIter(self.max_iter)
 
     def objective_func(self) -> pxt.NDArray:
@@ -524,11 +532,19 @@ class FW(pxs.Solver):
 
     def dual_certificate_grad(self, t: pxt.NDArray) -> pxt.NDArray:
         mst = self._mstate
-        dual_cert = DualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_)
+        dual_cert = DualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_, self.x_dim)
         return dual_cert.grad(t)
 
     def plot(self, x, a):
         """ Plot the results of the solver and each steps of the algorithm."""
+        if self.x_dim == 1:
+            return self.plot_1D(x, a)
+        elif self.x_dim == 2:
+            return self.plot_2D(x, a)
+        else:
+            raise ValueError("Only 1D and 2D signals are supported.")
+
+    def plot_1D(self, x, a):
         mst = self._mstate
 
         n_iter = len(mst["iter_x"])
@@ -617,12 +633,124 @@ class FW(pxs.Solver):
 
         plt.show()
 
+    def plot_2D(self, x, a):
+        mst = self._mstate
+
+        n_iter = len(mst["iter_x"])
+        n_grid = 256
+        grid1 = np.linspace(self.bounds[0], self.bounds[1], n_grid)
+        grid2 = np.linspace(self.bounds[0], self.bounds[1], n_grid)
+        xx, yy = np.meshgrid(grid1, grid2)
+        grid = np.stack([xx.ravel(), yy.ravel()], axis=1)
+
+        need_extra_plot = self.merge or self.sliding
+
+        if need_extra_plot:
+            n_iter = n_iter // 2
+            fig, axs = plt.subplots(n_iter, 3, figsize=(25, 5 * n_iter))
+        else:
+            fig, axs = plt.subplots(n_iter, 2, figsize=(15, 5 * n_iter))
+
+        # Initial dual certificate
+        dual_cert = DualCertificate(np.array([]), np.array([]), self.y, self.forward_op,
+                                    self.lambda_)
+        eta = dual_cert(grid).reshape(n_grid, n_grid)
+
+        for i in range(n_iter):
+            idx = i * 2 if need_extra_plot else i
+
+            s1 = axs[i, 0].scatter(mst["iter_candidates"][i][:, 0], mst["iter_candidates"][i][:, 1], marker="x",
+                                   s=np.ones_like(mst["iter_candidates"][i][:, 0]) * 50, c='k', label='Candidates')
+            im = axs[i, 0].imshow(eta, label='Dual Certificate', cmap='viridis', origin='lower',
+                            extent=(self.bounds[0], self.bounds[1], self.bounds[0], self.bounds[1]))
+            plt.colorbar(im, ax=axs[i, 0])
+
+            # if self.initialization == "smoothing" and not self.swarm:
+            #     g, z_smooth = mst["smooth_dual_certificate"][i]
+            #     ax2.plot(g, z_smooth, label='Smooth Dual Certificate', color='tab:orange')
+            #     ax2.plot(mst["smooth_peaks"][i], np.zeros_like(mst["smooth_peaks"][i]), 'x', color='tab:orange')
+            # ax2.plot(grid, dual_cert.grad(grid) / 200, label='Grad', color='tab:green')
+            # ax2.hlines(0, self.bounds[0], self.bounds[1], color='tab:red', linestyles='dashed')
+            axs[i, 0].set_title(f"Candidates - Iteration {i + 1}")
+            axs[i, 0].grid(True)
+
+            dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op, self.lambda_)
+            eta = dual_cert(grid).reshape(n_grid, n_grid)
+            im = axs[i, 1].imshow(eta, label='Dual Certificate', cmap='viridis', origin='lower',
+                            extent=(self.bounds[0], self.bounds[1], self.bounds[0], self.bounds[1]))
+            plt.colorbar(im, ax=axs[i, 1])
+            s2 = axs[i, 1].scatter(x[:, 0], x[:, 1], marker="+", s=np.abs(a) * 50, c='k', label='Ground Truth')
+            s3 = axs[i, 1].scatter(mst["iter_x"][idx][:, 0], mst["iter_x"][idx][:, 1], marker="x",
+                                   s=np.abs(mst["iter_a"][idx]) * 50, c='r', label='Reconstruction')
+            axs[i, 1].set_title(f"Correction - Iteration {i + 1}")
+            axs[i, 1].grid(True)
+            axs[i, 1].set_zorder(1)
+            axs[i, 1].set_frame_on(False)
+
+            if need_extra_plot:
+                idx += 1
+
+                dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op,
+                                            self.lambda_)
+                eta = dual_cert(grid).reshape(n_grid, n_grid)
+                im = axs[i, 2].imshow(eta, label='Dual Certificate', cmap='viridis', origin='lower',
+                           extent=(self.bounds[0], self.bounds[1], self.bounds[0], self.bounds[1]))
+                plt.colorbar(im, ax=axs[i, 2])
+                axs[i, 2].scatter(x[:, 0], x[:, 1], s=np.abs(a) * 50, marker="+", c='k', label='Ground Truth')
+                axs[i, 2].scatter(mst["iter_x"][idx][:, 0], mst["iter_x"][idx][:, 1], marker="x",
+                                  s=np.abs(mst["iter_a"][idx]) * 50, c='r', label='Reconstruction')
+
+                if self.merge:
+                    name = "Merge"
+                elif self.sliding:
+                    name = "Sliding"
+                else:
+                    name = "None"
+
+                axs[i, 2].set_title(name + f" - Iteration {i + 1}")
+                axs[i, 2].grid(True)
+                axs[i, 2].set_zorder(1)
+                axs[i, 2].set_frame_on(False)
+
+            # Update the dual certificate
+            idx = i * 2 if need_extra_plot else i
+            dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op, self.lambda_)
+            eta = dual_cert(grid).reshape(n_grid, n_grid)
+
+            # Legend
+            if i == 0:
+                handles = [s1, s2, s3]
+                labels = ['Candidates', 'Ground Truth', 'Reconstruction']
+                # Place legend outside the plot area
+                fig.legend(handles, labels, loc='upper center', ncol=2)
+
+        plt.show()
+
     def plot_solution(self, x0, a0):
+        if self.x_dim == 1:
+            return self.plot_solution_1D(x0, a0)
+        elif self.x_dim == 2:
+            return self.plot_solution_2D(x0, a0)
+        else:
+            raise ValueError("Only 1D and 2D signals are supported.")
+
+    def plot_solution_1D(self, x0, a0):
         x, a = self.solution()
 
         plt.figure(figsize=(10, 5))
         plt.stem(x0, a0, linefmt='k.--', markerfmt='ko', basefmt=" ", label='Ground Truth')
         plt.stem(x, a, linefmt='r.--', markerfmt='ro', basefmt=" ", label='Reconstruction')
+        plt.title("Ground Truth vs Reconstruction")
+        plt.grid(True)
+        plt.legend()
+        plt.show()
+
+    def plot_solution_2D(self, x0, a0):
+        x, a = self.solution()
+
+        plt.figure(figsize=(10, 5))
+        plt.scatter(x0[:, 0], x0[:, 1], s=np.abs(a0) * 50, marker="+", c='k', label='Ground Truth')
+        plt.scatter(x[:, 0], x[:, 1], s=np.abs(a) * 50, marker="x", c='r', label='Reconstruction')
         plt.title("Ground Truth vs Reconstruction")
         plt.grid(True)
         plt.legend()
@@ -662,14 +790,25 @@ class FW(pxs.Solver):
 
 class StopDualCertificate(StoppingCriterion):
 
-    def __init__(self, y: pxt.NDArray, forward_operator: MyLinOp, lambda_: float, bound: pxt.NDArray,
+    def __init__(self, y: pxt.NDArray, forward_operator: MyLinOp, lambda_: float, bound: pxt.NDArray, x_dim: int = 1,
                  dual_certificate_tol: float = 1e-2):
         self._val = -1.
         self.y = y
         self.forward_operator = forward_operator
         self.lambda_ = lambda_
+        self.bound = bound
+        self.x_dim = x_dim
         self.dual_certificate_tol = dual_certificate_tol
-        self.grid = np.linspace(bound[0], bound[1], 2048)
+
+        if x_dim == 1:
+            self.grid = np.linspace(bound[0], bound[1], 2048)
+        elif x_dim == 2:
+            grid1 = np.linspace(bound[0], bound[1], 256)
+            grid2 = np.linspace(bound[0], bound[1], 256)
+            xx, yy = np.meshgrid(grid1, grid2)
+            self.grid = np.stack([xx.ravel(), yy.ravel()], axis=1)
+        else:
+            raise ValueError("Only 1D and 2D signals are supported.")
 
     def stop(self, state: cabc.Mapping[str]) -> bool:
         x, a = state["x"], state["a"]

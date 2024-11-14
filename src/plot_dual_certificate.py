@@ -23,13 +23,8 @@ if __name__ == '__main__':
     # a0 = np.array([1, 1.5, 0.5, 2, 5])
     a0 = np.array([1, 1, 1, 1, 1])
 
-    # x0 = np.array([0.1, 0.25, 0.5, 0.51, 0.7, 0.75, 0.9, 0.92])
-    # a0 = np.array([1, 1, 1, 1, 1, 1, 1, 1])
-    # a0 = np.array([-1, 0.5, 1, 1, 1, 3, 1, 1])
-
     # x0 = np.array([-0.89, -0.7, -0.68, -0.55, -0.46, - 0.24, -0.2, -0.05, 0.1, 0.25, 0.5, 0.51, 0.7, 0.75, 0.9, 0.92])
     # a0 = np.array([3, 4.5, -1.5, -3, 4, 3, 1, 2.5, -1, 0.5, 1, 1, 1, 3, 1, 1])
-    # a0 = np.abs(a0)
 
     # x0 = np.array([0.2, 0.5, 0.8])
     # a0 = np.array([1, 2, 1.5])
@@ -52,8 +47,8 @@ if __name__ == '__main__':
 
     x_dim = 1
 
-    bounds = np.array([[0], [1]])
-    # bounds = np.array([[-1], [1]])
+    bounds = np.array([0, 1])
+    # bounds = np.array([-1, 1])
 
     grid = np.linspace(bounds[0], bounds[1], 10000)
     empty = np.array([])

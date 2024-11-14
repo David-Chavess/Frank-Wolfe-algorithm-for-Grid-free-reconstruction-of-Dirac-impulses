@@ -19,31 +19,31 @@ if __name__ == '__main__':
 
     x1 = np.array([0.1, 0.25, 0.5, 0.7, 0.9])
     a1 = np.array([1, 1, 1, 1, 1])
-    bounds1 = np.array([[0], [1]])
+    bounds1 = np.array([0, 1])
 
     x2 = np.array([0.1, 0.25, 0.5, 0.7, 0.9])
     a2 = np.array([1, 1.5, 0.5, 2, 5])
-    bounds2 = np.array([[0], [1]])
+    bounds2 = np.array([0, 1])
 
     x3 = np.array([0.1, 0.25, 0.5, 0.51, 0.7, 0.75, 0.9, 0.92])
     a3 = np.array([1, 1, 1, 1, 1, 1, 1, 1])
-    bounds3 = np.array([[0], [1]])
+    bounds3 = np.array([0, 1])
 
     x4 = np.array([0.1, 0.25, 0.5, 0.51, 0.7, 0.75, 0.9, 0.92])
     a4 = np.array([-1, 0.5, 1, 1, 1, 3, 1, 1])
-    bounds4 = np.array([[0], [1]])
+    bounds4 = np.array([0, 1])
 
     x5 = np.random.uniform(-0.95, 0.95, 20)
     a5 = np.random.uniform(0.5, 3, 20)
-    bounds5 = np.array([[-1], [1]])
+    bounds5 = np.array([-1, 1])
 
     x6 = np.random.uniform(-0.95, 0.95, 20) * 10
     a6 = np.random.uniform(0.5, 3, 20)
-    bounds6 = np.array([[-10], [10]])
+    bounds6 = np.array([-10, 10])
 
     x7 = np.array([-0.89, -0.7, -0.68, -0.55, -0.46, - 0.24, -0.2, -0.05, 0.1, 0.25, 0.5, 0.51, 0.7, 0.75, 0.9, 0.92])
     a7 = np.array([3, 4.5, -1.5, -3, 4, 3, 1, 2.5, -1, 0.5, 1, 1, 1, 3, 1, 1])
-    bounds7 = np.array([[-1], [1]])
+    bounds7 = np.array([-1, 1])
 
     ls = list(zip([x1, x2, x3, x4, x5, x6, x7], [a1, a2, a3, a4, a5, a6, a7],
              [bounds1, bounds2, bounds3, bounds4, bounds5, bounds6, bounds7]))

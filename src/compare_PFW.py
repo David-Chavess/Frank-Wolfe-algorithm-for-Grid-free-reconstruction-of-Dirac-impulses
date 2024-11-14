@@ -63,7 +63,7 @@ if __name__ == '__main__':
 
         x_dim = 1
 
-        bounds = np.array([[-1], [1]])
+        bounds = np.array([-1, 1])
         lambdas = [0.001, 0.01, 0.02, 0.1]
 
         gc.collect()

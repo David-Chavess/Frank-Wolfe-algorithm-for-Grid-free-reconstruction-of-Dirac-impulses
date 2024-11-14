@@ -28,3 +28,6 @@ class MyLinOp(LinOp):
 
     def get_DiffOperator(self) -> Self:
         pass
+
+    def get_scaling(self) -> pxt.Real:
+        pass

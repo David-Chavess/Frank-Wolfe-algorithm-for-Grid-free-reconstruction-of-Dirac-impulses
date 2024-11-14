@@ -47,18 +47,20 @@ if __name__ == '__main__':
 
     op = forward_op.get_DiffOperator()
 
+    x_dim = 1
+
     def fun(xa):
-        x, a = np.split(xa, 2)
+        a = np.split(xa, 1 + x_dim)[-1]
         z = op(xa) - y
-        return np.real(z.T.conj() @ z) / 2 + lambda_ * np.sum(np.abs(a))
+        return z.T @ z / 2 + lambda_ * np.sum(np.abs(a))
 
 
     def grad(xa):
-        x, a = np.split(xa, 2)
+        a = np.split(xa, 1 + x_dim)[-1]
         z = op(xa) - y
-        grad_x = a * (op.grad_x(xa) @ z)
+        grad_x = op.grad_x(xa) @ z
         grad_a = op.grad_a(xa) @ z + lambda_ * np.sign(a)
-        return np.real(np.concatenate([grad_x, grad_a]))
+        return np.concatenate([grad_x, grad_a])
 
 
     def finite_grad(xa):
@@ -99,7 +101,7 @@ if __name__ == '__main__':
         eps = 1e-10
         for i, v in enumerate(x):
             finite_grad[i] = (dual_certificates(v + eps) - dual_certificates(v)) / eps
-        return finite_grad
+        return finite_grad.reshape(-1, 1)
 
     assert np.allclose(dual_certificates.grad(x0), finite_grad(x0), atol=1e-2)
     x0 = np.array([0.1])
