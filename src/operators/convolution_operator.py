@@ -8,17 +8,30 @@ from src.operators.my_lin_op import MyLinOp
 
 class ConvolutionOperator(MyLinOp):
 
-    def __init__(self, x: pxt.NDArray, fwhm: float, bounds: np.ndarray):
-        self.x = x.ravel()
+    def __init__(self, x: pxt.NDArray, fwhm: float, bounds: np.ndarray, x_dim: int = 1):
+        self.x = x.reshape(-1, x_dim)
         self.bounds = bounds
+        self.x_dim = x_dim
+
         self.fwhm = fwhm
         self.sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
         size = bounds[1] - bounds[0]
         self.n_measurements = int(3 * size / fwhm) + 1
-        grid = np.linspace(bounds[0], bounds[1], self.n_measurements).ravel()
 
-        self.kernel = lambda t: np.exp(-1 * t ** 2 / (2 * self.sigma ** 2)) / (self.sigma * np.sqrt(2 * np.pi))
-        self.outer_sub = lambda t: np.subtract.outer(grid, t)
+        self.kernel = lambda t: np.exp(-1 * np.sum(t ** 2, axis=2) / (2 * self.sigma ** 2)) / ((2 * np.pi) ** (x_dim / 2) * self.sigma ** x_dim)
+
+        if x_dim == 1:
+            grid = np.linspace(bounds[0], bounds[1], self.n_measurements)
+            self.outer_sub = lambda t: np.subtract.outer(grid, t.ravel())[:,:,None]
+        elif x_dim == 2:
+            grid = np.linspace(bounds[0], bounds[1], self.n_measurements)
+            grid = np.array(np.meshgrid(grid, grid)).T.reshape(-1, 2)
+            self.grid = grid
+            self.n_measurements = self.n_measurements ** x_dim
+            self.outer_sub = lambda t: grid[:, None, :] - t.reshape(-1, x_dim)[None, :, :]
+        else:
+            raise ValueError("x_dim must be 1 or 2")
+
         self.forward_pre = self.kernel(self.outer_sub(self.x))
 
         self.scaling = 1 / self.fwhm
@@ -36,10 +49,14 @@ class ConvolutionOperator(MyLinOp):
         return lambda t: self.kernel(self.outer_sub(t)).T @ y
 
     def adjoint_function_grad(self, y: pxt.NDArray) -> Callable:
-        return lambda t: (self.outer_sub(t) * self.kernel(self.outer_sub(t)) / self.sigma ** 2).T @ y
+        def tmp(t):
+            w = self.outer_sub(t)
+            out = ((w * self.kernel(w)[:,:,None] / self.sigma ** 2).T @ y).T
+            return out
+        return tmp
 
     def get_new_operator(self, x: pxt.NDArray) -> MyLinOp:
-        return ConvolutionOperator(x, self.fwhm, self.bounds)
+        return ConvolutionOperator(x, self.fwhm, self.bounds, self.x_dim)
 
     def is_complex(self) -> bool:
         return False
@@ -53,17 +70,30 @@ class ConvolutionOperator(MyLinOp):
 
 class DiffConvolutionOperator(MyLinOp):
 
-    def __init__(self, fwhm: float, bounds: np.ndarray, input_size: int):
+    def __init__(self, fwhm: float, bounds: np.ndarray, input_size: int, x_dim: int = 1):
         self.bounds = bounds
         self.input_size = input_size
+        self.x_dim = x_dim
+
         self.fwhm = fwhm
         self.sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
         size = bounds[1] - bounds[0]
         self.n_measurements = int(3 * size / fwhm) + 1
-        grid = np.linspace(bounds[0], bounds[1], self.n_measurements).ravel()
 
-        self.kernel = lambda t: np.exp(-1 * t ** 2 / (2 * self.sigma ** 2)) / (self.sigma * np.sqrt(2 * np.pi))
-        self.outer_sub = lambda t: np.subtract.outer(grid, t)
+        if x_dim == 1:
+            grid = np.linspace(bounds[0], bounds[1], self.n_measurements)
+            self.kernel = lambda t: np.exp(-1 * t ** 2 / (2 * self.sigma ** 2)) / (self.sigma * np.sqrt(2 * np.pi))
+            self.outer_sub = lambda t: np.subtract.outer(grid, t.ravel())
+        elif x_dim == 2:
+            grid = np.linspace(bounds[0], bounds[1], self.n_measurements)
+            grid = np.array(np.meshgrid(grid, grid)).T.reshape(-1, 2)
+            self.grid = grid
+            self.n_measurements = self.n_measurements ** x_dim
+            self.kernel = lambda t: np.exp(-1 * np.sum(t ** 2, axis=2) / (2 * self.sigma ** 2)) / (
+                        2 * np.pi * self.sigma ** 2)
+            self.outer_sub = lambda t: grid[:, None, :] - t[None, :, :]
+        else:
+            raise ValueError("x_dim must be 1 or 2")
 
         self.scaling = 1 / self.fwhm
 
@@ -88,7 +118,7 @@ class DiffConvolutionOperator(MyLinOp):
         return lambda t: self.kernel(self.outer_sub(t)).T @ y
 
     def get_new_operator(self, x: pxt.NDArray) -> MyLinOp:
-        return DiffConvolutionOperator(self.fwhm, self.bounds, self.input_size)
+        return DiffConvolutionOperator(self.fwhm, self.bounds, self.input_size, self.x_dim)
 
     def is_complex(self) -> bool:
         return False

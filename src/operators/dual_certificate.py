@@ -30,7 +30,7 @@ class DualCertificate(Func):
         def grad(t):
             p = measurements - phi(ak)
             grad_phiS = self.op.adjoint_function_grad(p)
-            return np.sign(phiS(t)).reshape(-1, 1) * grad_phiS(t).reshape(-1, self.x_dim) / self.lambda_
+            return np.sign(phiS(t)).reshape(-1, 1) * grad_phiS(t) / self.lambda_
 
         self.grad = grad
 

@@ -183,8 +183,8 @@ class FW(pxs.Solver):
             if self.x_dim == 1:
                 mst['particles'] = np.linspace(self.bounds[0], self.bounds[1], n).reshape(-1, self.x_dim)
             elif self.x_dim == 2:
-                grid1 = np.linspace(self.bounds[0], self.bounds[1], n+1)[1:-1]
-                grid2 = np.linspace(self.bounds[0], self.bounds[1], n+1)[1:-1]
+                grid1 = np.linspace(self.bounds[0], self.bounds[1], n + 1)[1:-1]
+                grid2 = np.linspace(self.bounds[0], self.bounds[1], n + 1)[1:-1]
                 xx, yy = np.meshgrid(grid1, grid2)
                 mst['particles'] = np.stack([xx.ravel(), yy.ravel()], axis=1)
             else:
@@ -198,17 +198,19 @@ class FW(pxs.Solver):
             mst["smooth_peaks"].append(mst['particles'])
             mst["n_candidates_smooth"].append(len(mst['particles']))
 
+        dual_cert = DualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_, self.x_dim)
+
         x = np.random.uniform(low=self.bounds[0], high=self.bounds[1], size=(100, self.x_dim))
         # Compute learning rate
         for i in range(10):
-            x = self.dual_certificate_grad(x)
+            x = dual_cert.grad(x)
             x = x / np.linalg.norm(x)
-        learning_rate = 1 / (2 * np.linalg.norm(self.dual_certificate_grad(x)) * self.forward_op.get_scaling())
+        learning_rate = 1 / (2 * np.linalg.norm(dual_cert.grad(x)) * self.forward_op.get_scaling())
 
         old_x = mst['particles'].copy()
         all_particles = [mst['particles'].copy()]
         for i in range(self.grad_max_iterations):
-            grad = self.dual_certificate_grad(mst['particles'])
+            grad = dual_cert.grad(mst['particles'])
 
             # Update the particles
             mst['particles'] += learning_rate * grad
@@ -260,7 +262,6 @@ class FW(pxs.Solver):
         else:
             # Need to remove duplicates positions
             mst['best_positions'] = np.unique(mst['particles'].round(decimals=5), axis=0)
-            # mst['best_positions'] = mst['particles']
 
         mst['best_costs'] = self.dual_certificate(mst['best_positions'])
 
@@ -519,7 +520,8 @@ class FW(pxs.Solver):
         return x, a
 
     def default_stop_crit(self) -> StoppingCriterion:
-        stop_crit = StopDualCertificate(self.y, self.forward_op, self.lambda_, self.bounds, self.x_dim, self.dual_certificate_tol)
+        stop_crit = StopDualCertificate(self.y, self.forward_op, self.lambda_, self.bounds, self.x_dim,
+                                        self.dual_certificate_tol)
         return (stop_crit & pxos.MaxIter(self.min_iter)) | pxos.MaxIter(self.max_iter)
 
     def objective_func(self) -> pxt.NDArray:
@@ -527,13 +529,8 @@ class FW(pxs.Solver):
 
     def dual_certificate(self, t: pxt.NDArray) -> pxt.NDArray:
         mst = self._mstate
-        dual_cert = DualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_)
-        return dual_cert.apply(t)
-
-    def dual_certificate_grad(self, t: pxt.NDArray) -> pxt.NDArray:
-        mst = self._mstate
         dual_cert = DualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_, self.x_dim)
-        return dual_cert.grad(t)
+        return dual_cert.apply(t)
 
     def plot(self, x, a):
         """ Plot the results of the solver and each steps of the algorithm."""
@@ -662,7 +659,7 @@ class FW(pxs.Solver):
             s1 = axs[i, 0].scatter(mst["iter_candidates"][i][:, 0], mst["iter_candidates"][i][:, 1], marker="x",
                                    s=np.ones_like(mst["iter_candidates"][i][:, 0]) * 50, c='k', label='Candidates')
             im = axs[i, 0].imshow(eta, label='Dual Certificate', cmap='viridis', origin='lower',
-                            extent=(self.bounds[0], self.bounds[1], self.bounds[0], self.bounds[1]))
+                                  extent=(self.bounds[0], self.bounds[1], self.bounds[0], self.bounds[1]))
             plt.colorbar(im, ax=axs[i, 0])
 
             # if self.initialization == "smoothing" and not self.swarm:
@@ -677,7 +674,7 @@ class FW(pxs.Solver):
             dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op, self.lambda_)
             eta = dual_cert(grid).reshape(n_grid, n_grid)
             im = axs[i, 1].imshow(eta, label='Dual Certificate', cmap='viridis', origin='lower',
-                            extent=(self.bounds[0], self.bounds[1], self.bounds[0], self.bounds[1]))
+                                  extent=(self.bounds[0], self.bounds[1], self.bounds[0], self.bounds[1]))
             plt.colorbar(im, ax=axs[i, 1])
             s2 = axs[i, 1].scatter(x[:, 0], x[:, 1], marker="+", s=np.abs(a) * 50, c='k', label='Ground Truth')
             s3 = axs[i, 1].scatter(mst["iter_x"][idx][:, 0], mst["iter_x"][idx][:, 1], marker="x",
@@ -694,7 +691,7 @@ class FW(pxs.Solver):
                                             self.lambda_)
                 eta = dual_cert(grid).reshape(n_grid, n_grid)
                 im = axs[i, 2].imshow(eta, label='Dual Certificate', cmap='viridis', origin='lower',
-                           extent=(self.bounds[0], self.bounds[1], self.bounds[0], self.bounds[1]))
+                                      extent=(self.bounds[0], self.bounds[1], self.bounds[0], self.bounds[1]))
                 plt.colorbar(im, ax=axs[i, 2])
                 axs[i, 2].scatter(x[:, 0], x[:, 1], s=np.abs(a) * 50, marker="+", c='k', label='Ground Truth')
                 axs[i, 2].scatter(mst["iter_x"][idx][:, 0], mst["iter_x"][idx][:, 1], marker="x",
