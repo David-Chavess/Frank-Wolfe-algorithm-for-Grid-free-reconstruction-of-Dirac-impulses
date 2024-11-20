@@ -1,2 +1,3 @@
 # Frank-Wolfe-algorithm-for-Grid-free-reconstruction-of-Dirac-impulses
-Frank-Wolfe algorithm for Grid-free reconstruction of Dirac impulses
+
+The BLASSO is the continuous (i.e. off-the-grid) counterpart to the LASSO, used for sparse spikes inverse problems. We investigate a polyatomic Frank-Wolfe algorithm to solve the BLASSO optimization problem. Our algorithm is a variation on the classical Frank–Wolfe algorithm and improves upon the so-called Sliding Frank–Wolfe by considering polyatomic  update directions (i.e., linear combinations of multiple atoms). The algorithm is applied in the context of random Fourier observations and the mechanisms of the different algorithms are illustrated.
