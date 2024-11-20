@@ -62,7 +62,7 @@ class ConvolutionOperator(MyLinOp):
         return False
 
     def get_DiffOperator(self) -> MyLinOp:
-        return DiffConvolutionOperator(self.fwhm, self.bounds, 2*len(self.x))
+        return DiffConvolutionOperator(self.fwhm, self.bounds, 2*len(self.x), self.x_dim)
 
     def get_scaling(self) -> pxt.Real:
         return self.scaling
@@ -80,18 +80,18 @@ class DiffConvolutionOperator(MyLinOp):
         size = bounds[1] - bounds[0]
         self.n_measurements = int(3 * size / fwhm) + 1
 
+        self.kernel = lambda t: np.exp(-1 * np.sum(t ** 2, axis=2) / (2 * self.sigma ** 2)) / (
+                    (2 * np.pi) ** (x_dim / 2) * self.sigma ** x_dim)
+
         if x_dim == 1:
             grid = np.linspace(bounds[0], bounds[1], self.n_measurements)
-            self.kernel = lambda t: np.exp(-1 * t ** 2 / (2 * self.sigma ** 2)) / (self.sigma * np.sqrt(2 * np.pi))
-            self.outer_sub = lambda t: np.subtract.outer(grid, t.ravel())
+            self.outer_sub = lambda t: np.subtract.outer(grid, t.ravel())[:, :, None]
         elif x_dim == 2:
             grid = np.linspace(bounds[0], bounds[1], self.n_measurements)
             grid = np.array(np.meshgrid(grid, grid)).T.reshape(-1, 2)
             self.grid = grid
             self.n_measurements = self.n_measurements ** x_dim
-            self.kernel = lambda t: np.exp(-1 * np.sum(t ** 2, axis=2) / (2 * self.sigma ** 2)) / (
-                        2 * np.pi * self.sigma ** 2)
-            self.outer_sub = lambda t: grid[:, None, :] - t[None, :, :]
+            self.outer_sub = lambda t: grid[:, None, :] - t.reshape(-1, x_dim)[None, :, :]
         else:
             raise ValueError("x_dim must be 1 or 2")
 
@@ -100,15 +100,29 @@ class DiffConvolutionOperator(MyLinOp):
         super().__init__(max(input_size, 1), self.n_measurements)
 
     def apply(self, xa: pxt.NDArray) -> pxt.NDArray:
-        x, a = np.split(xa, 2)
+        a = np.split(xa, 1 + self.x_dim)[-1]
+        x = xa[:-len(a)]
         return self.kernel(self.outer_sub(x)) @ a
 
     def grad_x(self, xa: pxt.NDArray) -> pxt.NDArray:
-        x, a = np.split(xa, 2)
-        return (self.outer_sub(x) * self.kernel(self.outer_sub(x)) / self.sigma ** 2).T
+        a = np.split(xa, 1 + self.x_dim)[-1].reshape(-1, 1)
+        x = xa[:-len(a)]
+        w = self.outer_sub(x)
+        tmp = (w * self.kernel(w)[:,:,None] / self.sigma ** 2).T.reshape(-1, self.n_measurements)
+
+        if self.x_dim == 1:
+            out = a * tmp
+        elif self.x_dim == 2:
+            out = np.empty(tmp.shape)
+            out[0::2] = a * tmp[:len(tmp)//2]
+            out[1::2] = a * tmp[len(tmp)//2:]
+        else:
+            raise ValueError("x_dim must be 1 or 2")
+        return out
 
     def grad_a(self, xa: pxt.NDArray) -> pxt.NDArray:
-        x, a = np.split(xa, 2)
+        a = np.split(xa, 1 + self.x_dim)[-1]
+        x = xa[:-len(a)]
         return self.kernel(self.outer_sub(x)).T
 
     def adjoint(self, y: pxt.NDArray) -> pxt.NDArray:
