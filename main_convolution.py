@@ -39,7 +39,7 @@ if __name__ == '__main__':
     # bounds = np.array([-1, 1])
 
     # Full width at half maximum
-    fwhm = 0.1
+    fwhm = 0.02
     forward_op = ConvolutionOperator(x0, fwhm, bounds)
     N = forward_op.n_measurements
 
@@ -58,7 +58,7 @@ if __name__ == '__main__':
     lambdas = [0.001, 0.01, 0.02, 0.1]
 
     options = {"initialization": "smoothing", "polyatomic": False, "swarm": False, "sliding": True, "positive_constraint": True,
-               "max_iter": 20, "dual_certificate_tol": 1e-2, "smooth_sigma": 5}
+               "max_iter": 20, "dual_certificate_tol": 1e-2, "smooth_sigma": 10}
     solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False, options=options)
     t1 = time()
     solver.fit()
@@ -69,7 +69,7 @@ if __name__ == '__main__':
     solver.plot_solution(x0, a0)
 
     options = {"initialization": "smoothing", "polyatomic": True, "swarm": False, "sliding": False, "positive_constraint": True,
-               "max_iter": 20, "dual_certificate_tol": 1e-2, "smooth_sigma": 5, "animation": False}
+               "max_iter": 20, "dual_certificate_tol": 1e-2, "smooth_sigma": 10, "animation": False}
     solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False, options=options)
     t1 = time()
     solver.fit()

@@ -1,8 +1,9 @@
 import numpy as np
 from pyxu.abc import Func
 from pyxu.info import ptype as pxt
-from scipy.ndimage import gaussian_filter1d
+from scipy.ndimage import gaussian_filter1d, gaussian_filter
 from scipy.signal import find_peaks
+from skimage.feature import peak_local_max
 
 from src.operators.my_lin_op import MyLinOp
 
@@ -65,11 +66,20 @@ class SmoothDualCertificate(DualCertificate):
 
         self.sigma = sigma
         self.grid = grid
+        self.x_dim = x_dim
 
         if discrete:
             z = self.fun(self.grid).ravel()
-            self.z_smooth = gaussian_filter1d(z, sigma)
+            if self.x_dim == 1:
+                self.z_smooth = gaussian_filter1d(z, sigma)
+            elif self.x_dim == 2:
+                n = int(np.sqrt(z.size))
+                z = z.reshape(n, n)
+                self.z_smooth = gaussian_filter(z, sigma, mode='constant')
         else:
+            if self.x_dim != 1:
+                raise ValueError("Continuous smoothing only supported for 1D signals.")
+
             sigma = 1 / sigma
             gaussian_fourier = lambda x: np.exp(-1 * sigma ** 2 * x ** 2 / 2)
             phi = self.op
@@ -79,5 +89,14 @@ class SmoothDualCertificate(DualCertificate):
             self.z_smooth = self.fun(self.grid)
 
     def get_peaks(self):
-        peaks = find_peaks(self.z_smooth)[0]
-        return self.grid[peaks]
+        if self.x_dim == 1:
+            idx = find_peaks(self.z_smooth)[0]
+            peaks = self.grid[idx]
+        elif self.x_dim == 2:
+            idx = peak_local_max(self.z_smooth)
+            idx = [i[0] * self.z_smooth.shape[0] + i[1] for i in idx]
+            peaks = self.grid[idx]
+        else:
+            raise ValueError("Only 1D and 2D signals are supported.")
+
+        return peaks

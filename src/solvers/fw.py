@@ -183,6 +183,7 @@ class FW(pxs.Solver):
             if self.x_dim == 1:
                 mst['particles'] = np.linspace(self.bounds[0], self.bounds[1], n).reshape(-1, self.x_dim)
             elif self.x_dim == 2:
+                n = n // 2
                 grid1 = np.linspace(self.bounds[0], self.bounds[1], n + 1)[1:-1]
                 grid2 = np.linspace(self.bounds[0], self.bounds[1], n + 1)[1:-1]
                 xx, yy = np.meshgrid(grid1, grid2)
@@ -190,9 +191,18 @@ class FW(pxs.Solver):
             else:
                 raise ValueError("Grid initialization is only available for 1D and 2D signals.")
         elif self.initialization == "smoothing":
-            grid = np.linspace(self.bounds[0], self.bounds[1], n * 5)
+            if self.x_dim == 1:
+                grid = np.linspace(self.bounds[0], self.bounds[1], n * 5)
+            elif self.x_dim == 2:
+                grid1 = np.linspace(self.bounds[0], self.bounds[1], n * 2 + 1)[1:-1]
+                grid2 = np.linspace(self.bounds[0], self.bounds[1], n * 2 + 1)[1:-1]
+                xx, yy = np.meshgrid(grid1, grid2)
+                grid = np.stack([xx.ravel(), yy.ravel()], axis=1)
+            else:
+                raise ValueError("Smoothing initialization is only available for 1D and 2D signals.")
+
             smooth_dual_cert = SmoothDualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_,
-                                                     self.smooth_sigma, grid, discrete=True)
+                                                     self.smooth_sigma, grid, discrete=True, x_dim=self.x_dim)
             mst['particles'] = smooth_dual_cert.get_peaks().reshape(-1, self.x_dim)
             mst["smooth_dual_certificate"].append((grid, smooth_dual_cert.z_smooth))
             mst["smooth_peaks"].append(mst['particles'])
@@ -634,19 +644,20 @@ class FW(pxs.Solver):
         mst = self._mstate
 
         n_iter = len(mst["iter_x"])
-        n_grid = 256
+        n_grid = 64
         grid1 = np.linspace(self.bounds[0], self.bounds[1], n_grid)
         grid2 = np.linspace(self.bounds[0], self.bounds[1], n_grid)
         xx, yy = np.meshgrid(grid1, grid2)
         grid = np.stack([xx.ravel(), yy.ravel()], axis=1)
 
         need_extra_plot = self.merge or self.sliding
+        smoothing_plot = 1 if self.initialization == "smoothing" and not self.swarm else 0
 
         if need_extra_plot:
             n_iter = n_iter // 2
-            fig, axs = plt.subplots(n_iter, 3, figsize=(25, 5 * n_iter))
+            fig, axs = plt.subplots(n_iter, 3 + smoothing_plot, figsize=(25, 5 * n_iter))
         else:
-            fig, axs = plt.subplots(n_iter, 2, figsize=(15, 5 * n_iter))
+            fig, axs = plt.subplots(n_iter, 2 + smoothing_plot, figsize=(15, 5 * n_iter))
 
         # Initial dual certificate
         dual_cert = DualCertificate(np.array([]), np.array([]), self.y, self.forward_op,
@@ -661,15 +672,17 @@ class FW(pxs.Solver):
             im = axs[i, 0].imshow(eta, label='Dual Certificate', cmap='viridis', origin='lower',
                                   extent=(self.bounds[0], self.bounds[1], self.bounds[0], self.bounds[1]))
             plt.colorbar(im, ax=axs[i, 0])
-
-            # if self.initialization == "smoothing" and not self.swarm:
-            #     g, z_smooth = mst["smooth_dual_certificate"][i]
-            #     ax2.plot(g, z_smooth, label='Smooth Dual Certificate', color='tab:orange')
-            #     ax2.plot(mst["smooth_peaks"][i], np.zeros_like(mst["smooth_peaks"][i]), 'x', color='tab:orange')
-            # ax2.plot(grid, dual_cert.grad(grid) / 200, label='Grad', color='tab:green')
-            # ax2.hlines(0, self.bounds[0], self.bounds[1], color='tab:red', linestyles='dashed')
             axs[i, 0].set_title(f"Candidates - Iteration {i + 1}")
             axs[i, 0].grid(True)
+
+            if self.initialization == "smoothing" and not self.swarm:
+                g, z_smooth = mst["smooth_dual_certificate"][i]
+                axs[i, -1].imshow(z_smooth, label='Smooth Dual Certificate', cmap='viridis', origin='lower',
+                                  extent=(self.bounds[0], self.bounds[1], self.bounds[0], self.bounds[1]))
+                axs[i, -1].scatter(mst["smooth_peaks"][i][:, 0], mst["smooth_peaks"][i][:, 1], marker="x",
+                                   c='r', label='Reconstruction')
+                axs[i, -1].set_title(f"Smooth Dual Certificate - Iteration {i + 1}")
+                axs[i, -1].grid(True)
 
             dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op, self.lambda_)
             eta = dual_cert(grid).reshape(n_grid, n_grid)
@@ -800,8 +813,8 @@ class StopDualCertificate(StoppingCriterion):
         if x_dim == 1:
             self.grid = np.linspace(bound[0], bound[1], 2048)
         elif x_dim == 2:
-            grid1 = np.linspace(bound[0], bound[1], 256)
-            grid2 = np.linspace(bound[0], bound[1], 256)
+            grid1 = np.linspace(bound[0], bound[1], 32)[1:-1]
+            grid2 = np.linspace(bound[0], bound[1], 32)[1:-1]
             xx, yy = np.meshgrid(grid1, grid2)
             self.grid = np.stack([xx.ravel(), yy.ravel()], axis=1)
         else:
