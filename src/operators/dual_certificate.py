@@ -16,6 +16,7 @@ class DualCertificate(Func):
                  measurements: pxt.NDArray,
                  operator: MyLinOp,
                  lambda_: float,
+                 positive_constraint: bool = False,
                  x_dim: int = 1):
         self.xk = xk
         self.ak = ak
@@ -26,12 +27,19 @@ class DualCertificate(Func):
         phi = self.op
         phiS = phi.adjoint_function(measurements - phi(ak))
 
-        self.fun = lambda t: np.abs(phiS(t) / self.lambda_)
+        if positive_constraint:
+            self.fun = lambda t: phiS(t) / self.lambda_
+        else:
+            self.fun = lambda t: np.abs(phiS(t) / self.lambda_)
 
         def grad(t):
             p = measurements - phi(ak)
             grad_phiS = self.op.adjoint_function_grad(p)
-            return np.sign(phiS(t)).reshape(-1, 1) * grad_phiS(t) / self.lambda_
+
+            if positive_constraint:
+                return grad_phiS(t) / self.lambda_
+            else:
+                return np.sign(phiS(t)).reshape(-1, 1) * grad_phiS(t) / self.lambda_
 
         self.grad = grad
 
@@ -60,6 +68,7 @@ class SmoothDualCertificate(DualCertificate):
                  lambda_: float,
                  sigma: float,
                  grid: pxt.NDArray,
+                 positive_constraint: bool = False,
                  discrete: bool = True,
                  x_dim: int = 1):
         super().__init__(xk, ak, measurements, operator, lambda_, x_dim)
@@ -85,7 +94,12 @@ class SmoothDualCertificate(DualCertificate):
             phi = self.op
             yi = (measurements - phi(ak)) * gaussian_fourier(self.op.w)
             phiS = phi.adjoint_function(yi)
-            self.fun = lambda t: np.abs(phiS(t) / self.lambda_)
+
+            if positive_constraint:
+                self.fun = lambda t: phiS(t) / self.lambda_
+            else:
+                self.fun = lambda t: np.abs(phiS(t) / self.lambda_)
+
             self.z_smooth = self.fun(self.grid)
 
     def get_peaks(self):

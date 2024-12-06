@@ -202,13 +202,15 @@ class FW(pxs.Solver):
                 raise ValueError("Smoothing initialization is only available for 1D and 2D signals.")
 
             smooth_dual_cert = SmoothDualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_,
-                                                     self.smooth_sigma, grid, discrete=True, x_dim=self.x_dim)
+                                                     self.smooth_sigma, grid, self.positive_constraint, discrete=True,
+                                                     x_dim=self.x_dim)
             mst['particles'] = smooth_dual_cert.get_peaks().reshape(-1, self.x_dim)
             mst["smooth_dual_certificate"].append((grid, smooth_dual_cert.z_smooth))
             mst["smooth_peaks"].append(mst['particles'])
             mst["n_candidates_smooth"].append(len(mst['particles']))
 
-        dual_cert = DualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_, self.x_dim)
+        dual_cert = DualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_, self.positive_constraint,
+                                    self.x_dim)
 
         x = np.random.uniform(low=self.bounds[0], high=self.bounds[1], size=(100, self.x_dim))
         # Compute learning rate
@@ -531,7 +533,7 @@ class FW(pxs.Solver):
 
     def default_stop_crit(self) -> StoppingCriterion:
         stop_crit = StopDualCertificate(self.y, self.forward_op, self.lambda_, self.bounds, self.x_dim,
-                                        self.dual_certificate_tol)
+                                        self.dual_certificate_tol, self.positive_constraint)
         return (stop_crit & pxos.MaxIter(self.min_iter)) | pxos.MaxIter(self.max_iter)
 
     def objective_func(self) -> pxt.NDArray:
@@ -539,7 +541,8 @@ class FW(pxs.Solver):
 
     def dual_certificate(self, t: pxt.NDArray) -> pxt.NDArray:
         mst = self._mstate
-        dual_cert = DualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_, self.x_dim)
+        dual_cert = DualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_, self.positive_constraint,
+                                    self.x_dim)
         return dual_cert.apply(t)
 
     def plot(self, x, a):
@@ -567,7 +570,7 @@ class FW(pxs.Solver):
 
         # Initial dual certificate
         dual_cert = DualCertificate(np.array([]), np.array([]), self.y, self.forward_op,
-                                    self.lambda_)
+                                    self.lambda_, self.positive_constraint)
         eta = dual_cert(grid)
 
         for i in range(n_iter):
@@ -587,7 +590,8 @@ class FW(pxs.Solver):
             axs[i, 0].set_title(f"Candidates - Iteration {i + 1}")
             axs[i, 0].grid(True)
 
-            dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op, self.lambda_)
+            dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op, self.lambda_,
+                                        self.positive_constraint)
             eta = dual_cert(grid)
             ax2 = axs[i, 1].twinx()
             l1, = ax2.plot(grid, eta, label='Dual Certificate', color='tab:blue')
@@ -604,7 +608,7 @@ class FW(pxs.Solver):
                 idx += 1
 
                 dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op,
-                                            self.lambda_)
+                                            self.lambda_, self.positive_constraint)
                 eta = dual_cert(grid)
                 ax2 = axs[i, 2].twinx()
                 ax2.plot(grid, eta, label='Dual Certificate', color='tab:blue')
@@ -628,7 +632,8 @@ class FW(pxs.Solver):
 
             # Update the dual certificate
             idx = i * 2 if need_extra_plot else i
-            dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op, self.lambda_)
+            dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op, self.lambda_,
+                                        self.positive_constraint)
             eta = dual_cert(grid)
 
             # Legend
@@ -661,7 +666,7 @@ class FW(pxs.Solver):
 
         # Initial dual certificate
         dual_cert = DualCertificate(np.array([]), np.array([]), self.y, self.forward_op,
-                                    self.lambda_)
+                                    self.lambda_, self.positive_constraint)
         eta = dual_cert(grid).reshape(n_grid, n_grid)
 
         for i in range(n_iter):
@@ -684,7 +689,8 @@ class FW(pxs.Solver):
                 axs[i, -1].set_title(f"Smooth Dual Certificate - Iteration {i + 1}")
                 axs[i, -1].grid(True)
 
-            dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op, self.lambda_)
+            dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op, self.lambda_,
+                                        self.positive_constraint)
             eta = dual_cert(grid).reshape(n_grid, n_grid)
             im = axs[i, 1].imshow(eta, label='Dual Certificate', cmap='viridis', origin='lower',
                                   extent=(self.bounds[0], self.bounds[1], self.bounds[0], self.bounds[1]))
@@ -701,7 +707,7 @@ class FW(pxs.Solver):
                 idx += 1
 
                 dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op,
-                                            self.lambda_)
+                                            self.lambda_, self.positive_constraint)
                 eta = dual_cert(grid).reshape(n_grid, n_grid)
                 im = axs[i, 2].imshow(eta, label='Dual Certificate', cmap='viridis', origin='lower',
                                       extent=(self.bounds[0], self.bounds[1], self.bounds[0], self.bounds[1]))
@@ -724,7 +730,8 @@ class FW(pxs.Solver):
 
             # Update the dual certificate
             idx = i * 2 if need_extra_plot else i
-            dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op, self.lambda_)
+            dual_cert = DualCertificate(mst["iter_x"][idx], mst["iter_a"][idx], self.y, self.forward_op, self.lambda_,
+                                        self.positive_constraint)
             eta = dual_cert(grid).reshape(n_grid, n_grid)
 
             # Legend
@@ -801,7 +808,7 @@ class FW(pxs.Solver):
 class StopDualCertificate(StoppingCriterion):
 
     def __init__(self, y: pxt.NDArray, forward_operator: MyLinOp, lambda_: float, bound: pxt.NDArray, x_dim: int = 1,
-                 dual_certificate_tol: float = 1e-2):
+                 dual_certificate_tol: float = 1e-2, positive_constraint: bool = False):
         self._val = -1.
         self.y = y
         self.forward_operator = forward_operator
@@ -809,6 +816,7 @@ class StopDualCertificate(StoppingCriterion):
         self.bound = bound
         self.x_dim = x_dim
         self.dual_certificate_tol = dual_certificate_tol
+        self.positive_constraint = positive_constraint
 
         if x_dim == 1:
             self.grid = np.linspace(bound[0], bound[1], 2048)
@@ -826,9 +834,10 @@ class StopDualCertificate(StoppingCriterion):
         if len(x) == 0:
             return False
 
-        dual_cert = DualCertificate(x, a, self.y, self.forward_operator, self.lambda_)
+        dual_cert = DualCertificate(x, a, self.y, self.forward_operator, self.lambda_, self.positive_constraint,
+                                    self.x_dim)
 
-        self._val = np.max(np.abs(dual_cert.apply(self.grid))).item()
+        self._val = np.max(dual_cert.apply(self.grid)).item()
 
         if len(state["dual_certificate"]) == 0:
             converged = False
