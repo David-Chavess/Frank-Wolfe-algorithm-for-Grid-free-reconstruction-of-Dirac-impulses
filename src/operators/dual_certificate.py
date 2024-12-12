@@ -71,7 +71,7 @@ class SmoothDualCertificate(DualCertificate):
                  positive_constraint: bool = False,
                  discrete: bool = True,
                  x_dim: int = 1):
-        super().__init__(xk, ak, measurements, operator, lambda_, x_dim)
+        super().__init__(xk, ak, measurements, operator, lambda_, positive_constraint, x_dim)
 
         self.sigma = sigma
         self.grid = grid
