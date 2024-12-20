@@ -564,9 +564,9 @@ class FW(pxs.Solver):
 
         if need_extra_plot:
             n_iter = n_iter // 2
-            fig, axs = plt.subplots(n_iter, 3, figsize=(25, 5 * n_iter))
+            fig, axs = plt.subplots(n_iter, 3, figsize=(15, 4 * n_iter))
         else:
-            fig, axs = plt.subplots(n_iter, 2, figsize=(15, 5 * n_iter))
+            fig, axs = plt.subplots(n_iter, 2, figsize=(15, 4 * n_iter))
 
         # Initial dual certificate
         dual_cert = DualCertificate(np.array([]), np.array([]), self.y, self.forward_op,
@@ -584,7 +584,8 @@ class FW(pxs.Solver):
             if self.initialization == "smoothing" and not self.swarm:
                 g, z_smooth = mst["smooth_dual_certificate"][i]
                 ax2.plot(g, z_smooth, label='Smooth Dual Certificate', color='tab:orange')
-                ax2.plot(mst["smooth_peaks"][i], np.zeros_like(mst["smooth_peaks"][i]), 'x', color='tab:orange')
+                ax2.plot(mst["smooth_peaks"][i], np.zeros_like(mst["smooth_peaks"][i]), 'x', color='tab:orange' ,
+                         label='Initialization Points')
             # ax2.plot(grid, dual_cert.grad(grid) / 200, label='Grad', color='tab:green')
             # ax2.hlines(0, self.bounds[0], self.bounds[1], color='tab:red', linestyles='dashed')
             axs[i, 0].set_title(f"Candidates - Iteration {i + 1}")
@@ -643,6 +644,7 @@ class FW(pxs.Solver):
                 # Place legend outside the plot area
                 fig.legend(handles, labels, loc='upper center', ncol=2)
 
+        # plt.savefig(f"reconstruction.png")
         plt.show()
 
     def plot_2D(self, x, a):

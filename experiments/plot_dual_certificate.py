@@ -30,7 +30,7 @@ if __name__ == '__main__':
     # a0 = np.array([1, 2, 1.5])
 
     N = 100
-    bounds = np.array([-1000, 1000])
+    bounds = np.array([-100, 100])
     forward_op = FourierOperator.get_RandomFourierOperator(x0, N, bounds)
 
     # Get measurements
@@ -61,8 +61,8 @@ if __name__ == '__main__':
     particles = smooth_dual_cert.get_peaks()
     print("Time: ", time() - t1)
     print(len(particles))
-    plt.plot(grid, smooth_dual_cert.z_smooth, label='Discrete Smooth Dual Certificate', color='tab:orange')
-    plt.plot(particles, np.zeros_like(particles), 'x', color='tab:orange')
+    plt.plot(grid, smooth_dual_cert.z_smooth, label='Smooth Dual Certificate', color='tab:orange')
+    plt.plot(particles, np.zeros_like(particles), 'x', color='tab:orange', label='Initialization Points')
 
     t1 = time()
     sigma = 100

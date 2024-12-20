@@ -45,7 +45,7 @@ if __name__ == '__main__':
         else:
             raise ValueError("Invalid frequency")
 
-        n_particles = freq * 10
+        n_particles = freq
 
         freq_bounds = np.array([-freq, freq])
         forward_op = FourierOperator.get_RandomFourierOperator(x0, N, freq_bounds)
@@ -82,11 +82,11 @@ if __name__ == '__main__':
             solver.plot_solution(x0, a0)
 
         if cost_plot:
-            costs[f"SFW_{frequency}"] = solver.get_flat_norm_values(x0, a0, lambda_grid)
+            costs[f"SFW_{frequency}_frequency"] = solver.get_flat_norm_values(x0, a0, lambda_grid)
 
         gc.collect()
-        options = {"polyatomic": False, "swarm": True, "sliding": True,
-                   "max_iter": 100, "dual_certificate_tol": 1e-2, "n_particles": freq * 10}
+        options = {"polyatomic": False, "swarm": True, "sliding": True, "swarm_c1": 0.5, "swarm_c2": 0.75,
+                   "max_iter": 100, "dual_certificate_tol": 1e-2, "n_particles": n_particles}
         solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False,
                     options=options)
         t1 = time()
@@ -100,7 +100,7 @@ if __name__ == '__main__':
             solver.plot_solution(x0, a0)
 
         if cost_plot:
-            costs[f"SFW_swarm_{frequency}"] = solver.get_flat_norm_values(x0, a0, lambda_grid)
+            costs[f"SFW_swarm_{frequency}_frequency"] = solver.get_flat_norm_values(x0, a0, lambda_grid)
 
         gc.collect()
         options = {"initialization": "smoothing", "polyatomic": True, "swarm": False, "sliding": False,
@@ -118,7 +118,7 @@ if __name__ == '__main__':
             solver.plot_solution(x0, a0)
 
         if cost_plot:
-            costs[f"PFW_{frequency}"] = solver.get_flat_norm_values(x0, a0, lambda_grid)
+            costs[f"PFW_{frequency}_frequency"] = solver.get_flat_norm_values(x0, a0, lambda_grid)
 
         gc.collect()
         options = {"initialization": "smoothing", "polyatomic": True, "swarm": False, "sliding": True,
@@ -136,12 +136,14 @@ if __name__ == '__main__':
             solver.plot_solution(x0, a0)
 
         if cost_plot:
-            costs[f"Sliding_PFW_{frequency}"] = solver.get_flat_norm_values(x0, a0, lambda_grid)
+            costs[f"Sliding_PFW_{frequency}_frequency"] = solver.get_flat_norm_values(x0, a0, lambda_grid)
 
     if cost_plot:
         for name, cost in costs.items():
             plt.plot(lambda_grid, cost, label=name)
 
+        plt.xlabel("$\gamma$")
+        plt.ylabel("Flat norm")
         plt.semilogx()
         plt.legend()
         plt.show()

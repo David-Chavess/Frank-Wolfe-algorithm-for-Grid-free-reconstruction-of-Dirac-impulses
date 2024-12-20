@@ -45,7 +45,7 @@ if __name__ == '__main__':
         else:
             raise ValueError("Invalid frequency")
 
-        n_particles = freq * 10
+        n_particles = freq
 
         freq_bounds = np.array([-freq, freq])
         forward_op = FourierOperator.get_RandomFourierOperator(x0, N, freq_bounds)
@@ -75,7 +75,6 @@ if __name__ == '__main__':
         solver.fit()
         print("PFW_swarm - Time: ", time() - t1)
         solver.time_results()
-        solver.flat_norm_results(x0, a0, lambdas)
 
         if plot:
             solver.plot(x0, a0)
@@ -93,7 +92,6 @@ if __name__ == '__main__':
         solver.fit()
         print("PFW_random - Time: ", time() - t1)
         solver.time_results()
-        solver.flat_norm_results(x0, a0, lambdas)
 
         if plot:
             solver.plot(x0, a0)
@@ -111,7 +109,6 @@ if __name__ == '__main__':
         solver.fit()
         print("PFW_grid - Time: ", time() - t1)
         solver.time_results()
-        solver.flat_norm_results(x0, a0, lambdas)
 
         if plot:
             solver.plot(x0, a0)
@@ -129,7 +126,6 @@ if __name__ == '__main__':
         solver.fit()
         print("PFW_smoothing - Time: ", time() - t1)
         solver.time_results()
-        solver.flat_norm_results(x0, a0, lambdas)
 
         if plot:
             solver.plot(x0, a0)
