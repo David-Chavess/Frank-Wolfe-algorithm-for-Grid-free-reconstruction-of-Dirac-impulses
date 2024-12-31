@@ -4,7 +4,7 @@ from time import time
 import numpy as np
 from matplotlib import pyplot as plt
 
-from src.operators.fourier_operator import FourierOperator
+from src.operators.convolution_operator import ConvolutionOperator
 from src.solvers.fw import FW
 
 
@@ -12,7 +12,7 @@ def add_psnr(y0, psnr, N):
     y0_max = np.max(np.abs(y0))
     mse_db = 20 * np.log10(y0_max) - psnr
     mse = 10 ** (mse_db / 10)
-    w = np.random.normal(0, np.sqrt(mse / 2), (N, 2))
+    w = np.random.normal(0, np.sqrt(mse), N)
     y = y0 + w
     return y
 
@@ -29,16 +29,17 @@ if __name__ == '__main__':
     for n in n_spikes:
         np.random.seed(1)
 
-        x0 = np.random.uniform(-0.95, 0.95, n)
+        x0 = np.random.uniform(0.05, 0.55, size=(n, 2))
         a0 = np.random.uniform(1, 3, n)
 
-        N = 10 * len(x0)
+        x_dim = 2
+        bounds = np.array([0, 1])
 
-        freq = 100
+        fwhm = 0.1
+        n_measurements_per_pixel = 3
+        forward_op = ConvolutionOperator(x0, fwhm, bounds, x_dim, n_measurements_per_pixel)
+        N = forward_op.n_measurements
         n_particles = 100
-
-        freq_bounds = np.array([-freq, freq])
-        forward_op = FourierOperator.get_RandomFourierOperator(x0, N, freq_bounds)
 
         # Get measurements
         y0 = forward_op(a0)
@@ -51,12 +52,12 @@ if __name__ == '__main__':
         lambda_max = max(abs((forward_op.adjoint(y))))
         lambda_ = 0.1 * lambda_max
 
-        x_dim = 1
-        bounds = np.array([-1, 1])
+        x_dim = 2
+        bounds = np.array([0, 1])
 
         gc.collect()
         options = {"initialization": "smoothing", "polyatomic": False, "swarm": False, "sliding": True, "positive_constraint": True,
-                   "max_iter": 200, "dual_certificate_tol": 1e-2, "smooth_sigma": 2.5}
+               "max_iter": 200, "dual_certificate_tol": 1e-1, "smooth_sigma": 1, "n_particles": n_particles}
         solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False,
                     options=options)
         t1 = time()
@@ -75,7 +76,7 @@ if __name__ == '__main__':
 
         gc.collect()
         options = {"polyatomic": False, "swarm": True, "sliding": True, "swarm_c1": 0.5, "swarm_c2": 0.75, "positive_constraint": True,
-                   "max_iter": 200, "dual_certificate_tol": 1e-2, "n_particles": n_particles}
+                   "max_iter": 200, "dual_certificate_tol": 1e-1, "n_particles": n_particles}
         solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False,
                     options=options)
         t1 = time()
@@ -94,7 +95,7 @@ if __name__ == '__main__':
 
         gc.collect()
         options = {"initialization": "smoothing", "polyatomic": True, "swarm": False, "sliding": False, "positive_constraint": True,
-                   "max_iter": 200, "dual_certificate_tol": 1e-2, "smooth_sigma": 2.5}
+               "max_iter": 20, "dual_certificate_tol": 1e-1, "smooth_sigma": 1}
         solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False,
                     options=options)
         t1 = time()
@@ -112,7 +113,7 @@ if __name__ == '__main__':
 
         gc.collect()
         options = {"initialization": "smoothing", "polyatomic": True, "swarm": False, "sliding": True, "positive_constraint": True,
-                   "max_iter": 200, "dual_certificate_tol": 1e-2, "smooth_sigma": 2.5}
+               "max_iter": 100, "dual_certificate_tol": 1e-1, "smooth_sigma": 1}
         solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False,
                     options=options)
         t1 = time()
