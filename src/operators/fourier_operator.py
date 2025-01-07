@@ -10,6 +10,18 @@ from src.operators.my_lin_op import MyLinOp
 class FourierOperator(MyLinOp):
 
     def __init__(self, x: pxt.NDArray, w: pxt.NDArray, n_measurements: int, x_dim: int = 1):
+        """
+        Parameters
+        ----------
+        x : pxt.NDArray
+            Position of the Diracs.
+        w : pxt.NDArray
+            Frequencies of the Fourier transform to measure.
+        n_measurements : int
+            Number of measurements.
+        x_dim : int, optional
+            Dimension of the position of the Diracs, by default 1.
+        """
         self.x = x
         self.w = w
         self.n_measurements = n_measurements
@@ -66,6 +78,18 @@ class FourierOperator(MyLinOp):
 class DiffFourierOperator(MyLinOp):
 
     def __init__(self, w: pxt.NDArray, n_measurements: int, input_size: int, x_dim: int = 1):
+        """
+        Parameters
+        ----------
+        w : pxt.NDArray
+            Frequencies of the Fourier transform to measure.
+        n_measurements : int
+            Number of measurements.
+        input_size : int
+            Size of the input, used to set to dimension of the operator.
+        x_dim : int, optional
+            Dimension of the position of the Diracs, by default 1.
+        """
         self.w = w
         self.n_measurements = n_measurements
         self.input_size = input_size

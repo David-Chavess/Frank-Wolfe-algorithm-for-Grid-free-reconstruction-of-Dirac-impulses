@@ -9,6 +9,7 @@ from src.operators.my_lin_op import MyLinOp
 
 
 class DualCertificate(Func):
+    """Class for the empirical dual certificate function: $\eta(x) \stackrel{def}{=} \frac{1}{\lambda} \Phi^{*} (y - \Phi m)$."""
 
     def __init__(self,
                  xk: pxt.NDArray,
@@ -16,8 +17,26 @@ class DualCertificate(Func):
                  measurements: pxt.NDArray,
                  operator: MyLinOp,
                  lambda_: float,
-                 positive_constraint: bool = False,
+                 positivity_constraint: bool = False,
                  x_dim: int = 1):
+        """
+        Parameters
+        ----------
+        xk : pxt.NDArray
+            Current estimate of the signal positions at iteration k.
+        ak : pxt.NDArray
+            Current estimate of the signal amplitudes at iteration k.
+        measurements : pxt.NDArray
+            Measurements vector.
+        operator : MyLinOp
+            Linear operator of the problem.
+        lambda_ : float
+            Regularization parameter.
+        positivity_constraint : bool, optional
+            Whether the minimization has a positivity constraint, by default False.
+        x_dim : int, optional
+            Dimension of the Diracs positions, by default 1.
+        """
         self.xk = xk
         self.ak = ak
         self.op = operator.get_new_operator(xk)
@@ -27,7 +46,7 @@ class DualCertificate(Func):
         phi = self.op
         phiS = phi.adjoint_function(measurements - phi(ak))
 
-        if positive_constraint:
+        if positivity_constraint:
             self.fun = lambda t: phiS(t) / self.lambda_
         else:
             self.fun = lambda t: np.abs(phiS(t) / self.lambda_)
@@ -36,7 +55,7 @@ class DualCertificate(Func):
             p = measurements - phi(ak)
             grad_phiS = self.op.adjoint_function_grad(p)
 
-            if positive_constraint:
+            if positivity_constraint:
                 return grad_phiS(t) / self.lambda_
             else:
                 return np.sign(phiS(t)).reshape(-1, 1) * grad_phiS(t) / self.lambda_
@@ -59,6 +78,7 @@ class DualCertificate(Func):
 
 
 class SmoothDualCertificate(DualCertificate):
+    """Class for the smoothed empirical dual certificate function."""
 
     def __init__(self,
                  xk: pxt.NDArray,
@@ -68,10 +88,34 @@ class SmoothDualCertificate(DualCertificate):
                  lambda_: float,
                  sigma: float,
                  grid: pxt.NDArray,
-                 positive_constraint: bool = False,
+                 positivity_constraint: bool = False,
                  discrete: bool = True,
                  x_dim: int = 1):
-        super().__init__(xk, ak, measurements, operator, lambda_, positive_constraint, x_dim)
+        """
+        Parameters
+        ----------
+        xk : pxt.NDArray
+            Current estimate of the signal positions at iteration k.
+        ak : pxt.NDArray
+            Current estimate of the signal amplitudes at iteration k.
+        measurements : pxt.NDArray
+            Measurements vector.
+        operator : MyLinOp
+            Linear operator of the problem.
+        lambda_ : float
+            Regularization parameter.
+        sigma : float
+            Standard deviation of the Gaussian kernel.
+        grid : pxt.NDArray
+            Grid where the smoothed function is evaluated.
+        positivity_constraint : bool, optional
+            Whether the minimization has a positivity constraint, by default False.
+        discrete : bool, optional
+            Whether the smoothing is discrete or continuous, by default True.
+        x_dim : int, optional
+            Dimension of the Diracs positions, by default 1.
+        """
+        super().__init__(xk, ak, measurements, operator, lambda_, positivity_constraint, x_dim)
 
         self.sigma = sigma
         self.grid = grid
@@ -95,7 +139,7 @@ class SmoothDualCertificate(DualCertificate):
             yi = (measurements - phi(ak)) * gaussian_fourier(self.op.w)
             phiS = phi.adjoint_function(yi)
 
-            if positive_constraint:
+            if positivity_constraint:
                 self.fun = lambda t: phiS(t) / self.lambda_
             else:
                 self.fun = lambda t: np.abs(phiS(t) / self.lambda_)
@@ -103,6 +147,7 @@ class SmoothDualCertificate(DualCertificate):
             self.z_smooth = self.fun(self.grid)
 
     def get_peaks(self):
+        """Get the peaks positions of the smoothed function."""
         if self.x_dim == 1:
             idx = find_peaks(self.z_smooth)[0]
             peaks = self.grid[idx]

@@ -57,7 +57,7 @@ if __name__ == '__main__':
 
     lambdas = [0.001, 0.01, 0.02, 0.1]
 
-    options = {"initialization": "smoothing", "polyatomic": False, "swarm": False, "sliding": True, "positive_constraint": True,
+    options = {"initialization": "smoothing", "polyatomic": False, "swarm": False, "sliding": True, "positivity_constraint": True,
                "max_iter": 20, "dual_certificate_tol": 1e-2, "smooth_sigma": 5}
     solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False, options=options)
     t1 = time()
@@ -68,7 +68,7 @@ if __name__ == '__main__':
     solver.flat_norm_results(x0, a0, lambdas)
     solver.plot_solution(x0, a0)
 
-    options = {"initialization": "smoothing", "polyatomic": True, "swarm": False, "sliding": False, "positive_constraint": True,
+    options = {"initialization": "smoothing", "polyatomic": True, "swarm": False, "sliding": False, "positivity_constraint": True,
                "max_iter": 20, "dual_certificate_tol": 1e-2, "smooth_sigma": 5, "animation": False}
     solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False, options=options)
     t1 = time()

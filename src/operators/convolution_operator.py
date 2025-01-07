@@ -7,17 +7,32 @@ from src.operators.my_lin_op import MyLinOp
 
 
 class ConvolutionOperator(MyLinOp):
+    """Convolution operator for 1D or 2D."""
 
-    def __init__(self, x: pxt.NDArray, fwhm: float, bounds: np.ndarray, x_dim: int = 1, n_measurements_per_pixel: int = 3):
+    def __init__(self, x: pxt.NDArray, fwhm: float, bounds: np.ndarray, x_dim: int = 1, n_measurements_per_gaussan: int = 3):
+        """
+        Parameters
+        ----------
+        x : pxt.NDArray
+            Position of the Diracs.
+        fwhm : float
+            Full width at half maximum of the Gaussian kernel.
+        bounds : np.ndarray
+            Bounds of the domain where the Diracs postions live.
+        x_dim : int, optional
+            Dimension of the Diracs positions, by default 1.
+        n_measurements_per_gaussan : int, optional
+            Number of measurements per Gaussian, by default 3.
+        """
         self.x = x.reshape(-1, x_dim)
         self.bounds = bounds
         self.x_dim = x_dim
-        self.n_measurements_per_pixel = n_measurements_per_pixel
+        self.n_measurements_per_gaussan = n_measurements_per_gaussan
 
         self.fwhm = fwhm
         self.sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
         size = bounds[1] - bounds[0]
-        self.n_measurements = int(n_measurements_per_pixel * size / fwhm) + 1
+        self.n_measurements = int(n_measurements_per_gaussan * size / fwhm) + 1
 
         self.kernel = lambda t: np.exp(-1 * np.sum(t ** 2, axis=2) / (2 * self.sigma ** 2)) / ((2 * np.pi) ** (x_dim / 2) * self.sigma ** x_dim)
 
@@ -57,13 +72,13 @@ class ConvolutionOperator(MyLinOp):
         return tmp
 
     def get_new_operator(self, x: pxt.NDArray) -> MyLinOp:
-        return ConvolutionOperator(x, self.fwhm, self.bounds, self.x_dim, self.n_measurements_per_pixel)
+        return ConvolutionOperator(x, self.fwhm, self.bounds, self.x_dim, self.n_measurements_per_gaussan)
 
     def is_complex(self) -> bool:
         return False
 
     def get_DiffOperator(self) -> MyLinOp:
-        return DiffConvolutionOperator(self.fwhm, self.bounds, 2*len(self.x), self.x_dim, self.n_measurements_per_pixel)
+        return DiffConvolutionOperator(self.fwhm, self.bounds, 2 * len(self.x), self.x_dim, self.n_measurements_per_gaussan)
 
     def get_scaling(self) -> pxt.Real:
         return self.scaling
@@ -72,6 +87,18 @@ class ConvolutionOperator(MyLinOp):
 class DiffConvolutionOperator(MyLinOp):
 
     def __init__(self, fwhm: float, bounds: np.ndarray, input_size: int, x_dim: int = 1, n_measurements_per_pixel: int = 3):
+        """
+        Parameters
+        ----------
+        fwhm : float
+            Full width at half maximum of the Gaussian kernel.
+        bounds : np.ndarray
+            Bounds of the domain where the Diracs postions live.
+        x_dim : int, optional
+            Dimension of the Diracs positions, by default 1.
+        n_measurements_per_gaussan : int, optional
+            Number of measurements per Gaussian, by default 3.
+        """
         self.bounds = bounds
         self.input_size = input_size
         self.x_dim = x_dim

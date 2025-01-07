@@ -55,7 +55,7 @@ if __name__ == '__main__':
         bounds = np.array([-1, 1])
 
         gc.collect()
-        options = {"initialization": "smoothing", "polyatomic": False, "swarm": False, "sliding": True, "positive_constraint": True,
+        options = {"initialization": "smoothing", "polyatomic": False, "swarm": False, "sliding": True, "positivity_constraint": True,
                    "max_iter": 200, "dual_certificate_tol": 1e-2, "smooth_sigma": 2.5}
         solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False,
                     options=options)
@@ -74,7 +74,7 @@ if __name__ == '__main__':
             solver.plot_solution(x0, a0)
 
         gc.collect()
-        options = {"polyatomic": False, "swarm": True, "sliding": True, "swarm_c1": 0.5, "swarm_c2": 0.75, "positive_constraint": True,
+        options = {"polyatomic": False, "swarm": True, "sliding": True, "swarm_c1": 0.5, "swarm_c2": 0.75, "positivity_constraint": True,
                    "max_iter": 200, "dual_certificate_tol": 1e-2, "n_particles": n_particles}
         solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False,
                     options=options)
@@ -93,7 +93,7 @@ if __name__ == '__main__':
             solver.plot_solution(x0, a0)
 
         gc.collect()
-        options = {"initialization": "smoothing", "polyatomic": True, "swarm": False, "sliding": False, "positive_constraint": True,
+        options = {"initialization": "smoothing", "polyatomic": True, "swarm": False, "sliding": False, "positivity_constraint": True,
                    "max_iter": 200, "dual_certificate_tol": 1e-2, "smooth_sigma": 2.5}
         solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False,
                     options=options)
@@ -111,7 +111,7 @@ if __name__ == '__main__':
             solver.plot_solution(x0, a0)
 
         gc.collect()
-        options = {"initialization": "smoothing", "polyatomic": True, "swarm": False, "sliding": True, "positive_constraint": True,
+        options = {"initialization": "smoothing", "polyatomic": True, "swarm": False, "sliding": True, "positivity_constraint": True,
                    "max_iter": 200, "dual_certificate_tol": 1e-2, "smooth_sigma": 2.5}
         solver = FW(y, forward_op, lambda_, x_dim, bounds=bounds, verbose=False, show_progress=False,
                     options=options)

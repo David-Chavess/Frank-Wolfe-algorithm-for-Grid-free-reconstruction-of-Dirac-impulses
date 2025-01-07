@@ -20,6 +20,10 @@ from src.operators.my_lin_op import MyLinOp
 
 
 class FW(pxs.Solver):
+    """
+    Frank-Wolfe algorithm for sparse spikes reconstruction. The default method is the polyatomic Frank-Wolfe algorithm.
+    It also implements the sliding step of Sliding Frank-Wolfe algorithm.
+    """
 
     def __init__(
             self,
@@ -32,6 +36,26 @@ class FW(pxs.Solver):
             options: Dict[str, Any] = None,
             seed: int = 1,
             **kwargs):
+        """
+        Parameters
+        ----------
+        measurements : pxt.NDArray
+            Measurements vector.
+        forward_op : MyLinOp
+            Linear operator of the problem.
+        lambda_ : float
+            Regularization parameter.
+        x_dim : int, optional
+            Dimension of the Diracs positions, by default 1.
+        bounds : np.ndarray
+            Bounds of the domain where the Diracs positions live.
+        verbose : bool, optional
+            Whether to print information about the algorithm, by default False.
+        options : Dict[str, Any], optional
+            Options of the algorithm, used to select the algorithm and set the parameters, by default None.
+        seed : int, optional
+            Seed of the random number generator, by default 1.
+        """
         super().__init__(**kwargs)
         np.random.seed(seed)
 
@@ -40,44 +64,53 @@ class FW(pxs.Solver):
         self.lambda_ = lambda_
         self.x_dim = x_dim
         self.bounds = bounds
+        self.verbose = verbose
 
+        # Set the options
         if options is None:
             options = {}
 
+        # Whether to use the polyatomic updates directions
+        self.polyatomic = options.get("polyatomic", True)
+
+        # Whether to use the sliding step
+        self.sliding = options.get("sliding", False)
+
+        # Whether to enforce a positivity constraint
+        self.positive_constraint = options.get("positivity_constraint", False)
+
         # Initialize the swarm parameters
-        self.swarm = options.get("swarm", False)
-        self.swarm_iterations = options.get("swarm_iterations", 10)
-        self.swarm_w = options.get("swarm_w", 0.25)
-        self.swarm_c1 = options.get("swarm_c1", 0.75)
-        self.swarm_c2 = options.get("swarm_c2", 0.25)
+        self.swarm = options.get("swarm", False) # Whether to use the particle swarm optimization
+        self.swarm_iterations = options.get("swarm_iterations", 10) # Number of iterations of the particle swarm optimization
+        self.swarm_w = options.get("swarm_w", 0.25) # Inertia weight of the particle swarm optimization
+        self.swarm_c1 = options.get("swarm_c1", 0.75) # Cognitive acceleration coefficient of the particle swarm optimization
+        self.swarm_c2 = options.get("swarm_c2", 0.25) # Social acceleration coefficient of the particle swarm optimization
 
+        # Number of particles for the particle swarm optimization
+        self.n_particles = options.get("n_particles", 100)
+
+        # Threshold to remove atoms with small amplitudes
         self.amplitude_threshold = options.get("amplitude_threshold", 0.)
-        self.merge_threshold = options.get("merge_threshold", 0.005)
 
-        self.verbose = verbose
-        self.animation = options.get("animation", False)
-
+        # Initialization method of the particles gradient descent used if swarm is False
         self.initialization = options.get("initialization", "smoothing")
         if self.initialization not in ["random", "grid", "smoothing"]:
             raise ValueError(f"Invalid initialization method: {self.initialization}")
 
+        # Sigma of the Gaussian kernel for the smoothing initialization
         self.smooth_sigma = options.get("smooth_sigma", 2.5)
 
-        self.n_particles = options.get("n_particles", 100)
+        self.max_iter = options.get("max_iter", 100) # Maximum number of iterations
+        self.min_iter = options.get("min_iter", 3) # Minimum number of iterations
+        self.dual_certificate_tol = options.get("dual_certificate_tol", 1e-2) # Tolerance of the dual certificate stopping criterion
 
-        self.merge = options.get("merge", False)
-        self.polyatomic = options.get("polyatomic", True)
-        self.sliding = options.get("sliding", False)
+        self.grad_max_iterations = options.get("grad_iterations", 100) # Maximum number of iterations of the gradient descent
+        self.grad_tol = options.get("grad_tol", 1e-5) # Tolerance of the gradient descent stopping criterion
 
-        self.max_iter = options.get("max_iter", 100)
+        self.merge = options.get("merge", False) # Whether to merge atoms at the end of each iteration
+        self.merge_threshold = options.get("merge_threshold", 0.005) # Threshold distance to merge atoms
 
-        self.min_iter = options.get("min_iter", 3)
-        self.dual_certificate_tol = options.get("dual_certificate_tol", 1e-2)
-
-        self.grad_max_iterations = options.get("grad_iterations", 100)
-        self.grad_tol = options.get("grad_tol", 1e-5)
-
-        self.positive_constraint = options.get("positive_constraint", False)
+        self.animation = options.get("animation", False) # Save the animation of the gradient descent
 
     def m_init(self, **kwargs):
         mst = self._mstate
@@ -172,6 +205,7 @@ class FW(pxs.Solver):
     def gradient_ascent(self):
         mst = self._mstate
 
+        # Grid size for the initialization
         n = int(2 * self.forward_op.get_scaling()) + 1
         n = int(n * max(self.bounds[1] - self.bounds[0], 1))
 
@@ -220,8 +254,12 @@ class FW(pxs.Solver):
         learning_rate = 1 / (2 * np.linalg.norm(dual_cert.grad(x)) * self.forward_op.get_scaling())
 
         old_x = mst['particles'].copy()
-        all_particles = [mst['particles'].copy()]
+
+        if self.animation:
+            all_particles = [mst['particles'].copy()]
         for i in range(self.grad_max_iterations):
+
+            # Compute the gradient
             grad = dual_cert.grad(mst['particles'])
 
             # Update the particles
@@ -235,8 +273,22 @@ class FW(pxs.Solver):
             if np.allclose(current_x, old_x, atol=self.grad_tol) or np.linalg.norm(current_x - old_x) < self.grad_tol:
                 break
             old_x = current_x
-            all_particles.append(mst['particles'].copy())
+            if self.animation:
+                all_particles.append(mst['particles'].copy())
 
+        if self.initialization == "smoothing":
+            mst['best_positions'] = mst['particles']
+        else:
+            # Need to remove duplicates positions
+            mst['best_positions'] = np.unique(mst['particles'].round(decimals=5), axis=0)
+
+        mst['best_costs'] = self.dual_certificate(mst['best_positions'])
+
+        global_best_index = np.argmax(mst['best_costs'])
+        mst['global_best_position'] = mst['best_positions'][global_best_index].copy().reshape(-1, self.x_dim)
+        mst['global_best_cost'] = mst['best_costs'][global_best_index]
+
+        # Animation of the gradient descent
         if self._astate["idx"] == 1 and self.animation:
             import matplotlib.animation as animation
 
@@ -269,31 +321,21 @@ class FW(pxs.Solver):
                                             bitrate=1800)
             ani.save(f'gradient_descent_{self._astate["idx"]}.gif', writer=writer)
 
-        if self.initialization == "smoothing":
-            mst['best_positions'] = mst['particles']
-        else:
-            # Need to remove duplicates positions
-            mst['best_positions'] = np.unique(mst['particles'].round(decimals=5), axis=0)
-
-        mst['best_costs'] = self.dual_certificate(mst['best_positions'])
-
-        global_best_index = np.argmax(mst['best_costs'])
-        mst['global_best_position'] = mst['best_positions'][global_best_index].copy().reshape(-1, self.x_dim)
-        mst['global_best_cost'] = mst['best_costs'][global_best_index]
-
     def correction_step(self) -> pxt.NDArray:
-        r"""
-        Method to update the weights after the selection of the new atoms. It solves a LASSO problem with a
-        restricted support corresponding to the current set of active indices (active atoms). As mentioned,
-        this method should be overriden in a child class for case-specific improved implementation.
+        """
+        Method to update the amplitudes of the Diracs and remove the Diracs with small (zero) amplitudes. It solves a
+        LASSO problem with the L1 regularization.
 
         Returns
         -------
-        weights: NDArray
-            New iterate with the updated weights.
+        x : pxt.NDArray
+            Updated Diracs positions.
+        a : pxt.NDArray
+            Updated Diracs amplitudes
         """
         mst = self._mstate
 
+        # Stopping criterion for the LASSO.
         def correction_stop_crit(eps) -> pxs.StoppingCriterion:
             stop_crit = pxos.RelError(
                 eps=eps,
@@ -304,20 +346,23 @@ class FW(pxs.Solver):
             )
             return stop_crit
 
+        # Data fidelity term
         data_fid = self.data_fid(mst["x_candidates"])
 
         a0 = mst["a_candidates"]
         dim = a0.shape[0]
 
-        # Add a small value to avoid problem in the stopping criterion
+        # Add a small value to avoid a problem in the stopping criterion
         if self._astate["idx"] == 1:
             a0[0] = 1e-5
 
+        # Enforce the positivity constraint
         if self.positive_constraint:
             penalty = pxop.PositiveL1Norm(dim)
         else:
             penalty = pxop.L1Norm(dim)
 
+        # Solve the LASSO problem with accelerated proximal gradient descent.
         apgd = PGD(data_fid, self.lambda_ * penalty, show_progress=False)
 
         min_iter = pxos.MaxIter(n=10)
@@ -368,18 +413,19 @@ class FW(pxs.Solver):
         mst = self._mstate
         mst["candidates_search_durations"].append(t2 - t1)
 
+        # Remove candidates with small dual certificate values.
         filter = mst['best_costs'] > 0.9
         if np.any(filter):
             mst['best_positions'] = mst['best_positions'][filter]
             mst['best_costs'] = mst['best_costs'][filter]
 
         if self.verbose:
-            print(f"Swarm step duration: {t2 - t1}")
             print("Before correction step:")
             print(f"Number of atoms: {len(mst['x'])}")
-            # print(f"Positions: {mst['x'].ravel()}")
-            # print(f"Amplitudes: {mst['a'].ravel()}")
+            print(f"Positions: {mst['x'].ravel()}")
+            print(f"Amplitudes: {mst['a'].ravel()}")
 
+        # Update plotting lists
         if self.polyatomic:
             mst["iter_candidates"].append(mst["best_positions"].copy())
         else:
@@ -395,60 +441,66 @@ class FW(pxs.Solver):
             mst["x_candidates"] = np.concatenate([mst["x"].reshape(-1, self.x_dim), mst["global_best_position"]])
             mst["a_candidates"] = np.append(mst["a"], 0)
 
+        # Correction step
         t1 = time()
-        # Correction step to update amplitudes and remove candidates with 0 amplitudes
         mst["x"], mst["a"] = self.correction_step()
         t2 = time()
         mst["correction_durations"].append(t2 - t1)
 
+        # Update plotting lists
         mst["iter_x"].append(mst["x"].copy())
         mst["iter_a"].append(mst["a"].copy())
 
         if self.verbose:
-            print(f"Correction step duration: {t2 - t1}")
             print("After correction step:")
             print(f"Number of atoms: {len(mst['x'])}")
-            # print(f"Positions: {mst['x'].ravel()}")
-            # print(f"Amplitudes: {mst['a'].ravel()}")
+            print(f"Positions: {mst['x'].ravel()}")
+            print(f"Amplitudes: {mst['a'].ravel()}")
 
+        # Merging step
         if self.merge:
             if self.verbose:
                 print("Before merge step:")
                 print(f"Number of atoms: {len(mst['x'])}")
-                # print(f"Positions: {mst['x'].ravel()}")
-                # print(f"Amplitudes: {mst['a'].ravel()}")
+                print(f"Positions: {mst['x'].ravel()}")
+                print(f"Amplitudes: {mst['a'].ravel()}")
 
             mst["x"], mst["a"] = self.merge_atoms(mst["x"], mst["a"])
 
+            # Update plotting lists
             mst["iter_x"].append(mst["x"].copy())
             mst["iter_a"].append(mst["a"].copy())
 
+        # Sliding step
         if self.sliding:
             if self.verbose:
                 print("Before sliding step:")
                 print(f"Number of atoms: {len(mst['x'])}")
-                # print(f"Positions: {mst['x'].ravel()}")
-                # print(f"Amplitudes: {mst['a'].ravel()}")
+                print(f"Positions: {mst['x'].ravel()}")
+                print(f"Amplitudes: {mst['a'].ravel()}")
 
             t1 = time()
             mst["x"], mst["a"] = self.sliding_compute()
             t2 = time()
             mst["sliding_durations"].append(t2 - t1)
 
+            # Update plotting lists
             mst["iter_x"].append(mst["x"].copy())
             mst["iter_a"].append(mst["a"].copy())
 
             if self.verbose:
-                print(f"Sliding step duration: {t2 - t1}")
                 print("After sliding step:")
                 print(f"Number of atoms: {len(mst['x'])}")
-                # print(f"Positions: {mst['x'].ravel()}")
-                # print(f"Amplitudes: {mst['a'].ravel()}")
+                print(f"Positions: {mst['x'].ravel()}")
+                print(f"Amplitudes: {mst['a'].ravel()}")
 
     def solution(self) -> pxt.NDArray:
+        """Get the solution of the problem."""
         return self._mstate['x'], self._mstate['a']
 
-    def merged_solution(self) -> pxt.NDArray:
+    def merged_solution(self, merge_threshold: float) -> pxt.NDArray:
+        """Get the merged solution of the problem."""
+        self.merge_threshold = merge_threshold
         return self.merge_atoms(self._mstate['x'], self._mstate['a'])
 
     def merge_atoms(self, x: pxt.NDArray, a: pxt.NDArray) -> pxt.NDArray:
@@ -532,6 +584,7 @@ class FW(pxs.Solver):
         return x, a
 
     def default_stop_crit(self) -> StoppingCriterion:
+        """Set the stopping criterion of the algorithm."""
         stop_crit = StopDualCertificate(self.y, self.forward_op, self.lambda_, self.bounds, self.x_dim,
                                         self.dual_certificate_tol, self.positive_constraint)
         return (stop_crit & pxos.MaxIter(self.min_iter)) | pxos.MaxIter(self.max_iter)
@@ -540,6 +593,7 @@ class FW(pxs.Solver):
         return self.dual_certificate(self._mstate["x"])
 
     def dual_certificate(self, t: pxt.NDArray) -> pxt.NDArray:
+        """Compute the dual certificate of the problem at given positions t."""
         mst = self._mstate
         dual_cert = DualCertificate(mst["x"], mst["a"], self.y, self.forward_op, self.lambda_, self.positive_constraint,
                                     self.x_dim)
@@ -785,6 +839,18 @@ class FW(pxs.Solver):
         print("Dual Certificate: ", mst["dual_certificate"])
 
     def get_flat_norm_values(self, x0: pxt.NDArray, a0: pxt.NDArray, lambdas: List):
+        """
+        Compute the flat norm values for a list of lambdas.
+
+        Parameters
+        ----------
+        x0 : pxt.NDArray
+            Ground truth Diracs positions.
+        a0 : pxt.NDArray
+            Ground truth Diracs amplitudes.
+        lambdas : List
+            List of lambdas to compute the flat norm values.
+        """
         x, a = self.solution()
         costs = []
         for lambda_ in lambdas:
@@ -792,12 +858,34 @@ class FW(pxs.Solver):
         return costs
 
     def flat_norm_results(self, x0: pxt.NDArray, a0: pxt.NDArray, lambdas: pxt.NDArray | List[float]):
+        """
+        Print the flat norm values for a list of lambdas.
+
+        Parameters
+        ----------
+        x0 : pxt.NDArray
+            Ground truth Diracs positions.
+        a0 : pxt.NDArray
+            Ground truth Diracs amplitudes.
+        lambdas : pxt.NDArray | List[float]
+            List of lambdas to compute the flat norm values
+        """
         print("Flat norm: ")
         costs = self.get_flat_norm_values(x0, a0, lambdas)
         for lambda_, cost in zip(lambdas, costs):
             print(f"Lambda = {lambda_}: {cost:.5f}")
 
     def plot_flat_norm(self, x0: pxt.NDArray, a0: pxt.NDArray):
+        """
+        Plot the flat norm values for a range of lambdas.
+
+        Parameters
+        ----------
+        x0 : pxt.NDArray
+            Ground truth Diracs positions.
+        a0 : pxt.NDArray
+            Ground truth Diracs amplitudes.
+        """
         grid = np.logspace(-3, 0, 25)
         costs = self.get_flat_norm_values(x0, a0, grid)
 
@@ -808,23 +896,43 @@ class FW(pxs.Solver):
 
 
 class StopDualCertificate(StoppingCriterion):
+    """Stopping criterion based on the dual certificate. Stops when the maximum of the dual certificate is close to 1."""
 
-    def __init__(self, y: pxt.NDArray, forward_operator: MyLinOp, lambda_: float, bound: pxt.NDArray, x_dim: int = 1,
+    def __init__(self, y: pxt.NDArray, forward_operator: MyLinOp, lambda_: float, bounds: pxt.NDArray, x_dim: int = 1,
                  dual_certificate_tol: float = 1e-2, positive_constraint: bool = False):
+        """
+
+        Parameters
+        ----------
+        y : pxt.NDArray
+            Measurements vector.
+        forward_operator : MyLinOp
+            Linear operator of the problem.
+        lambda_ : float
+            Regularization parameter.
+        bounds : np.ndarray
+            Bounds of the domain where the Diracs positions live.
+        x_dim : int, optional
+            Dimension of the Diracs positions, by default 1.
+        dual_certificate_tol : float, optional
+            Tolerance for the dual certificate accuracy, by default 1e-2.
+        positivity_constraint : bool, optional
+            Whether the minimization has a positivity constraint, by default False.
+        """
         self._val = -1.
         self.y = y
         self.forward_operator = forward_operator
         self.lambda_ = lambda_
-        self.bound = bound
+        self.bound = bounds
         self.x_dim = x_dim
         self.dual_certificate_tol = dual_certificate_tol
         self.positive_constraint = positive_constraint
 
         if x_dim == 1:
-            self.grid = np.linspace(bound[0], bound[1], 2048)
+            self.grid = np.linspace(bounds[0], bounds[1], 2048)
         elif x_dim == 2:
-            grid1 = np.linspace(bound[0], bound[1], 32)[1:-1]
-            grid2 = np.linspace(bound[0], bound[1], 32)[1:-1]
+            grid1 = np.linspace(bounds[0], bounds[1], 32)[1:-1]
+            grid2 = np.linspace(bounds[0], bounds[1], 32)[1:-1]
             xx, yy = np.meshgrid(grid1, grid2)
             self.grid = np.stack([xx.ravel(), yy.ravel()], axis=1)
         else:
